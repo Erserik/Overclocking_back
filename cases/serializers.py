@@ -137,11 +137,44 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
         return instance
 
 
+# --------- НОВОЕ: сериализатор для уточняющих вопросов ---------
+
+
+class FollowupQuestionSerializer(serializers.ModelSerializer):
+    """
+    Используется внутри детального кейса, чтобы показать
+    все уточняющие вопросы и ответы на них.
+    """
+
+    class Meta:
+        model = FollowupQuestion
+        fields = (
+            "id",
+            "order_index",
+            "code",
+            "text",
+            "target_document_types",
+            "status",
+            "answer_text",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+# --------- Детальный кейс с вложенными вопросами ---------
+
+
 class CaseDetailSerializer(serializers.ModelSerializer):
     """
     Детальный просмотр кейса.
-    Пока без документов и таблиц — только данные по кейсу.
+    Теперь включает список уточняющих вопросов и ответов.
     """
+
+    followup_questions = FollowupQuestionSerializer(
+        many=True,
+        read_only=True,
+    )
 
     class Meta:
         model = Case
@@ -154,7 +187,11 @@ class CaseDetailSerializer(serializers.ModelSerializer):
             "selected_document_types",
             "created_at",
             "updated_at",
+            "followup_questions",   # <- добавили
         )
+
+
+# --------- Сериализаторы для next-question / answer-question ---------
 
 
 class NextQuestionResponseSerializer(serializers.Serializer):
