@@ -1,7 +1,6 @@
-# cases/serializers.py
-
 from rest_framework import serializers
-from .models import Case, CaseStatus
+from .models import Case, CaseStatus, FollowupQuestion, FollowupQuestionStatus
+from .services.followup import generate_followup_questions_for_case
 
 
 # Ключи для 8 обязательных вопросов
@@ -23,8 +22,6 @@ class CaseSessionCreateSerializer(serializers.ModelSerializer):
     Принимает:
     - title (обязательно)
     - requester_name (опционально)
-
-    initial_answers и selected_document_types здесь не заполняем.
     """
 
     class Meta:
@@ -43,8 +40,6 @@ class CaseSessionCreateSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         requester_id = None
         if request is not None:
-            # Можно вытаскивать ID из заголовка X-User-Id,
-            # который проставит Java/Spring auth.
             requester_id = request.META.get("HTTP_X_USER_ID")
 
         case = Case.objects.create(
@@ -60,7 +55,7 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
     Шаг 2: сохранение ответов на 8 вопросов и типов документов
     для уже созданного кейса.
 
-    Используется в PUT /api/cases/{id}/initial-answers/
+    После успешного сохранения вызываем генерацию плана уточняющих вопросов.
     """
 
     class Meta:
@@ -120,8 +115,8 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         """
-        Обновляем initial_answers и selected_document_types.
-        Статус можно переключить на IN_PROGRESS.
+        Обновляем initial_answers и selected_document_types,
+        ставим статус IN_PROGRESS и генерируем план уточняющих вопросов.
         """
         initial_answers = validated_data.get("initial_answers")
         selected_document_types = validated_data.get("selected_document_types")
@@ -132,11 +127,13 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
         if selected_document_types is not None:
             instance.selected_document_types = selected_document_types
 
-        # как только появились ответы, считаем, что кейс в работе
-        if instance.initial_answers:
-            instance.status = CaseStatus.IN_PROGRESS
-
+        instance.status = CaseStatus.IN_PROGRESS
         instance.save()
+
+        # Генерация плана уточняющих вопросов (сейчас — заглушка)
+        generate_followup_questions_for_case(instance)
+
+        instance.refresh_from_db()
         return instance
 
 
@@ -158,4 +155,28 @@ class CaseDetailSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = fields
+
+
+class NextQuestionResponseSerializer(serializers.Serializer):
+    """
+    Ответ API на запрос следующего уточняющего вопроса.
+    """
+    question_id = serializers.UUIDField(allow_null=True)
+    order_index = serializers.IntegerField(allow_null=True)
+    total_questions = serializers.IntegerField()
+    text = serializers.CharField(allow_null=True)
+    target_document_types = serializers.ListField(
+        child=serializers.CharField(), allow_empty=True
+    )
+    is_finished = serializers.BooleanField()
+
+
+class AnswerQuestionSerializer(serializers.Serializer):
+    """
+    Тело запроса при ответе на уточняющий вопрос.
+    """
+    question_id = serializers.UUIDField()
+    answer = serializers.CharField(
+        allow_blank=False,
+        help_text="Ответ пользователя на уточняющий вопрос.",
+    )
