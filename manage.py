@@ -3,9 +3,16 @@
 import os
 import sys
 
+from dotenv import load_dotenv
+
 
 def main():
     """Run administrative tasks."""
+    # Загружаем .env из каталога, где лежит manage.py
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    env_path = os.path.join(base_dir, ".env")
+    load_dotenv(env_path)
+
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'forte_ai_back.settings')
     try:
         from django.core.management import execute_from_command_line
