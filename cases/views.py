@@ -19,11 +19,13 @@ from drf_spectacular.utils import (
 
 @extend_schema(
     tags=['Cases'],
-    summary='Создать кейс (сессию)',
+    summary='Создать кейс (сессию) / получить список своих кейсов',
     description=(
         'Шаг 1. Создаёт новый бизнес-кейс/сессию. '
         'На этом шаге пользователь указывает только название (title) '
-        'и, опционально, своё имя. В ответ возвращается uid кейса.'
+        'и, опционально, своё имя. В ответ возвращается uid кейса.\n\n'
+        'GET /api/cases/ возвращает список кейсов ТЕКУЩЕГО пользователя '
+        '(фильтрация по requester_id из JWT).'
     ),
     request=CaseSessionCreateSerializer,
     responses={201: CaseSessionCreateSerializer},
@@ -40,12 +42,24 @@ from drf_spectacular.utils import (
 )
 class CaseSessionCreateView(generics.ListCreateAPIView):
     """
-    GET  /api/cases/   — список кейсов (для BA/админки)
+    GET  /api/cases/   — список кейсов текущего пользователя
     POST /api/cases/   — создать новый кейс (сессию)
     """
     queryset = Case.objects.all().order_by("-created_at")
     serializer_class = CaseSessionCreateSerializer
 
+    def get_queryset(self):
+        """
+        Возвращаем только кейсы текущего пользователя.
+        requester_id берётся из JWT (request.user.id).
+        """
+        qs = super().get_queryset()
+        user = self.request.user
+
+        if not getattr(user, "is_authenticated", False):
+            return qs.none()
+
+        return qs.filter(requester_id=str(user.id))
 
 
 @extend_schema(
@@ -144,7 +158,7 @@ class NextFollowupQuestionView(generics.GenericAPIView):
             }
 
         serializer = self.get_serializer(data)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer, status=status.HTTP_200_OK)
 
 
 @extend_schema(

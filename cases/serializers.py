@@ -21,7 +21,7 @@ class CaseSessionCreateSerializer(serializers.ModelSerializer):
     Шаг 1: создание кейса/сессии.
     Принимает:
     - title (обязательно)
-    - requester_name (опционально)
+    - requester_name (опционально, может переопределить имя из токена)
     """
 
     class Meta:
@@ -37,15 +37,30 @@ class CaseSessionCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "status", "created_at", "updated_at")
 
     def create(self, validated_data):
+        """
+        Привязываем кейс к пользователю из JWT:
+        requester_id  <- request.user.id (sub из токена)
+        requester_name <- либо из body, либо из токена (name)
+        """
         request = self.context.get("request")
+
+        # имя, которое пользователь ввёл руками в форме (может быть None)
+        manual_name = validated_data.pop("requester_name", None)
+
         requester_id = None
-        if request is not None:
-            requester_id = request.META.get("HTTP_X_USER_ID")
+        requester_name = manual_name
+
+        # Берём данные из SpringJWTAuthentication (request.user)
+        if request is not None and getattr(request.user, "is_authenticated", False):
+            requester_id = str(request.user.id)
+            if not requester_name:
+                requester_name = getattr(request.user, "name", None)
 
         case = Case.objects.create(
             requester_id=requester_id,
+            requester_name=requester_name,
             status=CaseStatus.DRAFT,
-            **validated_data,
+            **validated_data,  # тут останется только title
         )
         return case
 
@@ -130,14 +145,11 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
         instance.status = CaseStatus.IN_PROGRESS
         instance.save()
 
-        # Генерация плана уточняющих вопросов (сейчас — заглушка)
+        # Генерация плана уточняющих вопросов (GPT/заглушка)
         generate_followup_questions_for_case(instance)
 
         instance.refresh_from_db()
         return instance
-
-
-# --------- НОВОЕ: сериализатор для уточняющих вопросов ---------
 
 
 class FollowupQuestionSerializer(serializers.ModelSerializer):
@@ -162,13 +174,10 @@ class FollowupQuestionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-# --------- Детальный кейс с вложенными вопросами ---------
-
-
 class CaseDetailSerializer(serializers.ModelSerializer):
     """
     Детальный просмотр кейса.
-    Теперь включает список уточняющих вопросов и ответов.
+    Включает список уточняющих вопросов и ответов.
     """
 
     followup_questions = FollowupQuestionSerializer(
@@ -187,11 +196,8 @@ class CaseDetailSerializer(serializers.ModelSerializer):
             "selected_document_types",
             "created_at",
             "updated_at",
-            "followup_questions",   # <- добавили
+            "followup_questions",
         )
-
-
-# --------- Сериализаторы для next-question / answer-question ---------
 
 
 class NextQuestionResponseSerializer(serializers.Serializer):

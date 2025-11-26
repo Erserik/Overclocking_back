@@ -37,9 +37,10 @@ class Case(models.Model):
         default=CaseStatus.DRAFT,
     )
 
-
+    # Ответы на 8 стартовых вопросов
     initial_answers = models.JSONField(blank=True, null=True)
 
+    # Выбранные типы документов (например ["vision", "use_case"])
     selected_document_types = models.JSONField(blank=True, null=True)
 
     class Meta:
@@ -59,8 +60,6 @@ class FollowupQuestionStatus(models.TextChoices):
 class FollowupQuestion(models.Model):
     """
     Уточняющий вопрос, который нужно задать по кейсу (план вопросов).
-    В этом шаге мы генерируем их заглушкой.
-    Потом вместо заглушки подключим GPT, который вернёт список вопросов.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
