@@ -18,5 +18,6 @@ urlpatterns = [
     ),
 
     path('api/', include('cases.urls')),
+    path('api/', include('documents.urls')),
 
 ]
