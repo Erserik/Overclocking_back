@@ -38,12 +38,14 @@ from drf_spectacular.utils import (
         ),
     ],
 )
-class CaseSessionCreateView(generics.CreateAPIView):
+class CaseSessionCreateView(generics.ListCreateAPIView):
     """
-    POST /api/cases/
+    GET  /api/cases/   — список кейсов (для BA/админки)
+    POST /api/cases/   — создать новый кейс (сессию)
     """
-    queryset = Case.objects.all()
+    queryset = Case.objects.all().order_by("-created_at")
     serializer_class = CaseSessionCreateSerializer
+
 
 
 @extend_schema(
