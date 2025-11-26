@@ -158,7 +158,7 @@ class NextFollowupQuestionView(generics.GenericAPIView):
             }
 
         serializer = self.get_serializer(data)
-        return Response(serializer, status=status.HTTP_200_OK)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 @extend_schema(
