@@ -40,7 +40,7 @@ class Case(models.Model):
     # Ответы на 8 стартовых вопросов
     initial_answers = models.JSONField(blank=True, null=True)
 
-    # Выбранные типы документов (например ["vision", "use_case"])
+    # Выбранные типы документов (например ["scope", "use_case"])
     selected_document_types = models.JSONField(blank=True, null=True)
 
     class Meta:
@@ -79,7 +79,7 @@ class FollowupQuestion(models.Model):
     text = models.TextField()
 
     # На какие типы документов этот вопрос больше всего влияет
-    # Например: ["vision", "use_case"]
+    # Например: ["scope", "use_case"]
     target_document_types = models.JSONField(blank=True, null=True)
 
     status = models.CharField(
