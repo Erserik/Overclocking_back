@@ -6,8 +6,9 @@ from cases.models import Case
 
 class DocumentType(models.TextChoices):
     VISION = "vision", "Vision / Product Vision"
-    SCOPE = "scope", "Scope"
-    # дальше можно добавить: BRD, use_case, и т.п.
+    SCOPE = "scope", "Scope / Product Scope"
+    BPMN = "bpmn", "BPMN Diagram"
+    # позже: BRD, user_stories, context_diagram и т.п.
 
 
 class DocumentStatus(models.TextChoices):
@@ -25,8 +26,8 @@ class GenerationStatus(models.TextChoices):
 
 class GeneratedDocument(models.Model):
     """
-    Документ, сгенерированный GPT на основе кейса и ответов пользователя.
-    Например: Vision, Scope и т.п.
+    Документ или диаграмма, сгенерированные GPT на основе кейса и ответов пользователя.
+    Например: Vision, Scope, BPMN и т.п.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -35,101 +36,97 @@ class GeneratedDocument(models.Model):
         Case,
         on_delete=models.CASCADE,
         related_name="documents",
-        help_text="Кейс, для которого сгенерирован документ.",
+        help_text="Кейс, для которого сгенерирован документ/диаграмма.",
     )
 
     doc_type = models.CharField(
         max_length=50,
         choices=DocumentType.choices,
-        help_text="Тип документа (vision, scope, use_case и т.д.).",
+        help_text="Тип документа (vision, scope, bpmn и т.д.).",
     )
 
-    title = models.CharField(
-        max_length=255,
-        help_text="Заголовок документа (может быть сгенерирован из кейса).",
-    )
+    title = models.CharField(max_length=255)
 
-    # Markdown/текстовая версия
-    content = models.TextField(
-        blank=True,
-        help_text="Текст документа (Markdown или обычный текст).",
-    )
+    # Markdown / текстовое представление (для Vision/Scope, для BPMN – описание + ```plantuml``` блок)
+    content = models.TextField(blank=True)
 
-    # Структурный JSON (P.0: Vision/Scope)
-    structured_data = models.JSONField(
-        blank=True,
-        null=True,
-        help_text="Структурированное представление документа (JSON), для доработок и экспорта.",
-    )
+    # Структурированный JSON (для Vision/Scope – разделы, для BPMN – plantuml + метаданные)
+    structured_data = models.JSONField(blank=True, null=True)
 
     status = models.CharField(
         max_length=50,
         choices=DocumentStatus.choices,
         default=DocumentStatus.DRAFT,
-        help_text="Статус документа (draft/approved/rejected).",
     )
 
     generation_status = models.CharField(
         max_length=50,
         choices=GenerationStatus.choices,
         default=GenerationStatus.NEW,
-        help_text="Статус генерации (new/generating/ready/failed).",
     )
 
     llm_model = models.CharField(
         max_length=100,
         blank=True,
         null=True,
-        help_text="Название модели, которая сгенерировала документ (например, gpt-4.1-mini).",
+        help_text="Имя модели, которая генерировала документ.",
     )
 
     prompt_version = models.CharField(
-        max_length=20,
+        max_length=50,
         blank=True,
         null=True,
-        help_text="Версия промпта для этого типа документа.",
+        help_text="Версия промпта для этого документа.",
     )
 
     prompt_hash = models.CharField(
         max_length=64,
         blank=True,
         null=True,
-        help_text="Хеш system+user промпта для определения устаревания.",
+        help_text="Хэш system+user промпта для определения устаревания.",
     )
 
     source_snapshot_hash = models.CharField(
         max_length=64,
         blank=True,
         null=True,
-        help_text="Хеш исходных данных кейса (initial_answers + followups), на базе которых генерился документ.",
-    )
-
-    # ✅ DOCX-экспорт
-    docx_file = models.FileField(
-        upload_to="generated_docs/",
-        blank=True,
-        null=True,
-        help_text="Сгенерированный DOCX файл (экспорт).",
-    )
-
-    docx_generated_at = models.DateTimeField(
-        blank=True,
-        null=True,
-        help_text="Когда был сгенерирован DOCX.",
+        help_text="Хэш кейса/ответов, на основе которых был сгенерен документ.",
     )
 
     error_message = models.TextField(
         blank=True,
         null=True,
-        help_text="Сообщение об ошибке при генерации, если была.",
+        help_text="Текст ошибки генерации, если что-то пошло не так.",
+    )
+
+    # DOCX для текстовых документов (Vision, Scope и т.п.)
+    docx_file = models.FileField(
+        upload_to="generated_docs/",
+        blank=True,
+        null=True,
+        help_text="DOCX-версия документа (для текстовых документов).",
+    )
+
+    docx_generated_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="Когда последний раз генерировался DOCX.",
+    )
+
+    # ✅ только ссылка на картинку диаграммы на PlantUML-сервере
+    diagram_url = models.URLField(
+        blank=True,
+        null=True,
+        help_text="External PlantUML server image URL for diagram-like documents.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("case", "doc_type")  # один документ каждого типа на кейс
-        ordering = ["doc_type"]
+        verbose_name = "Generated document"
+        verbose_name_plural = "Generated documents"
+        ordering = ["case", "doc_type", "created_at"]
 
     def __str__(self):
-        return f"{self.case.title} [{self.doc_type}]"
+        return f"{self.doc_type} for case={self.case_id} ({self.id})"

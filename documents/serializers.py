@@ -26,6 +26,7 @@ class GeneratedDocumentSerializer(serializers.ModelSerializer):
             "error_message",
             "docx_file",
             "docx_generated_at",
+            "diagram_file",
             "created_at",
             "updated_at",
         )
