@@ -2,15 +2,20 @@ import logging
 from typing import Dict, List, Tuple
 
 from django.db import transaction
-from django.utils import timezone
 
-from cases.models import Case, CaseStatus
-from documents.models import GeneratedDocument, GenerationStatus, DocumentType, DocumentStatus
+from cases.models import Case
+from documents.models import (
+    GeneratedDocument,
+    GenerationStatus,
+    DocumentType,
+    DocumentStatus,
+)
 
 from .context_builder import build_case_context, build_source_snapshot_hash
 from .dispatcher import compute_prompt_hash, generate_structured_and_render
 from .artifacts.vision import prompt as vision_prompt
 from .artifacts.scope import prompt as scope_prompt
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,22 +27,28 @@ def _artifact_prompts(doc_type: str, case_context: dict) -> Tuple[str, str, str]
     returns (prompt_version, system_prompt, user_prompt)
     """
     if doc_type == DocumentType.VISION:
-        return vision_prompt.PROMPT_VERSION, vision_prompt.SYSTEM_PROMPT, vision_prompt.build_user_prompt(case_context)
+        return (
+            vision_prompt.PROMPT_VERSION,
+            vision_prompt.SYSTEM_PROMPT,
+            vision_prompt.build_user_prompt(case_context),
+        )
     if doc_type == DocumentType.SCOPE:
-        return scope_prompt.PROMPT_VERSION, scope_prompt.SYSTEM_PROMPT, scope_prompt.build_user_prompt(case_context)
+        return (
+            scope_prompt.PROMPT_VERSION,
+            scope_prompt.SYSTEM_PROMPT,
+            scope_prompt.build_user_prompt(case_context),
+        )
     raise ValueError("Unsupported doc_type")
 
 
 def ensure_case_documents(case: Case) -> Tuple[List[GeneratedDocument], Dict[str, str], bool]:
     """
-    Ensure: создаёт отсутствующие документы (vision/scope) по selected_document_types.
-    П.0: НЕ регенерим существующие автоматически, только создаём отсутствующие.
-    Возвращает: (docs, errors, did_generate_any)
+    Lazy generation по GET:
+    - Работает В ЛЮБОЙ МОМЕНТ (не важно статус кейса и полнота ответов).
+    - Создаёт только отсутствующие документы (или те, у которых structured_data пустой).
+    - Если selected_document_types пуст — по умолчанию делаем scope + vision (P.0).
     """
-    if case.status != CaseStatus.READY_FOR_DOCUMENTS:
-        raise ValueError("Case is not ready_for_documents")
-
-    selected = case.selected_document_types or []
+    selected = case.selected_document_types or [DocumentType.VISION, DocumentType.SCOPE]
     target = [t for t in selected if t in SUPPORTED_DOC_TYPES]
 
     errors: Dict[str, str] = {}
@@ -55,7 +66,6 @@ def ensure_case_documents(case: Case) -> Tuple[List[GeneratedDocument], Dict[str
                 continue  # уже готов
 
             try:
-                # создаём/обновляем запись со статусом generating
                 doc, _ = GeneratedDocument.objects.update_or_create(
                     case=locked_case,
                     doc_type=doc_type,
