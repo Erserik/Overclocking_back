@@ -1,5 +1,11 @@
 from rest_framework import serializers
-from .models import Case, CaseStatus, FollowupQuestion, FollowupQuestionStatus
+
+from .models import (
+    Case,
+    CaseStatus,
+    FollowupQuestion,
+    FollowupQuestionStatus,
+)
 from .services.followup import generate_followup_questions_for_case
 
 
@@ -38,12 +44,16 @@ ALLOWED_DOCUMENT_TYPE_CODES = {
     "state_diagram",
 }
 
+
 class CaseSessionCreateSerializer(serializers.ModelSerializer):
     """
     Шаг 1: создание кейса/сессии.
     Принимает:
     - title (обязательно)
     - requester_name (опционально, может переопределить имя из токена)
+
+    В ответе (GET /api/cases/) видно:
+    - requester_id — id пользователя, создавшего кейс.
     """
 
     class Meta:
@@ -51,12 +61,19 @@ class CaseSessionCreateSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "title",
+            "requester_id",
             "requester_name",
             "status",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "status", "created_at", "updated_at")
+        read_only_fields = (
+            "id",
+            "requester_id",
+            "status",
+            "created_at",
+            "updated_at",
+        )
 
     def create(self, validated_data):
         """
@@ -100,6 +117,7 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "title",
+            "requester_id",
             "requester_name",
             "status",
             "initial_answers",
@@ -110,6 +128,7 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "title",
+            "requester_id",
             "requester_name",
             "status",
             "created_at",
@@ -235,6 +254,7 @@ class CaseDetailSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "status",
+            "requester_id",
             "requester_name",
             "initial_answers",
             "selected_document_types",
