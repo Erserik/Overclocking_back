@@ -50,7 +50,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='generateddocument',
             name='doc_type',
-            field=models.CharField(choices=[('vision', 'Vision / Product Vision'), ('scope', 'Scope (Solution Boundaries)')], max_length=50),
+            field=models.CharField(choices=[('scope', 'Vision / Product Vision'), ('vision', 'Scope (Solution Boundaries)')], max_length=50),
         ),
         migrations.AlterField(
             model_name='generateddocument',

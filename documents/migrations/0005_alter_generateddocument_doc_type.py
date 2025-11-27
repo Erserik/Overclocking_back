@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='generateddocument',
             name='doc_type',
-            field=models.CharField(choices=[('vision', 'Vision / Product Vision'), ('scope', 'Scope (Solution Boundaries)')], help_text='Тип документа (vision, ...).', max_length=50),
+            field=models.CharField(choices=[('scope', 'Vision / Product Vision'), ('vision', 'Scope (Solution Boundaries)')], help_text='Тип документа (scope, ...).', max_length=50),
         ),
     ]
