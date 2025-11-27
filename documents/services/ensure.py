@@ -15,11 +15,11 @@ from .context_builder import build_case_context, build_source_snapshot_hash
 from .dispatcher import compute_prompt_hash, generate_structured_and_render
 from .artifacts.vision import prompt as vision_prompt
 from .artifacts.scope import prompt as scope_prompt
-
+from .artifacts.bpmn import prompt as bpmn_prompt
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_DOC_TYPES = {DocumentType.VISION, DocumentType.SCOPE}
+SUPPORTED_DOC_TYPES = {DocumentType.VISION, DocumentType.SCOPE, DocumentType.BPMN}
 
 
 def _artifact_prompts(doc_type: str, case_context: dict) -> Tuple[str, str, str]:
@@ -37,6 +37,12 @@ def _artifact_prompts(doc_type: str, case_context: dict) -> Tuple[str, str, str]
             scope_prompt.PROMPT_VERSION,
             scope_prompt.SYSTEM_PROMPT,
             scope_prompt.build_user_prompt(case_context),
+        )
+    if doc_type == DocumentType.BPMN:
+        return (
+            bpmn_prompt.PROMPT_VERSION,
+            bpmn_prompt.SYSTEM_PROMPT,
+            bpmn_prompt.build_user_prompt(case_context),
         )
     raise ValueError("Unsupported doc_type")
 
