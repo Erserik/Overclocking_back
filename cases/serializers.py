@@ -19,8 +19,8 @@ REQUIRED_ANSWER_KEYS = [
 # которые фронт может прислать в selected_document_types
 ALLOWED_DOCUMENT_TYPE_CODES = {
     # Документы
-    "vision",
     "scope",
+    "vision",
     "brd",
     "user_stories",
     "use_case",

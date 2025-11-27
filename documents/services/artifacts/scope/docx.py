@@ -28,16 +28,16 @@ def build_docx(structured: Dict[str, Any]) -> bytes:
     d.add_heading("Summary", level=3)
     d.add_paragraph(summary)
 
-    d.add_heading("In scope", level=3)
+    d.add_heading("In vision", level=3)
     _add_bullets(d, structured.get("in_scope") or [])
 
-    d.add_heading("Out of scope", level=3)
+    d.add_heading("Out of vision", level=3)
     _add_bullets(d, structured.get("out_of_scope") or [])
 
-    d.add_heading("Business processes in scope", level=3)
+    d.add_heading("Business processes in vision", level=3)
     _add_bullets(d, structured.get("business_processes_in_scope") or [])
 
-    d.add_heading("Systems in scope", level=3)
+    d.add_heading("Systems in vision", level=3)
     _add_bullets(d, structured.get("systems_in_scope") or [])
 
     d.add_heading("Assumptions", level=3)

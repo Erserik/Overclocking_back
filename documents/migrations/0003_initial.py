@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
             name='GeneratedDocument',
             fields=[
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('doc_type', models.CharField(choices=[('vision', 'Vision / Product Vision'), ('use_case', 'Use Case')], help_text='Тип документа (vision, use_case и т.д.).', max_length=50)),
+                ('doc_type', models.CharField(choices=[('scope', 'Vision / Product Vision'), ('use_case', 'Use Case')], help_text='Тип документа (scope, use_case и т.д.).', max_length=50)),
                 ('title', models.CharField(help_text='Заголовок документа (может быть сгенерирован из кейса).', max_length=255)),
                 ('content', models.TextField(help_text='Текст документа (Markdown или обычный текст).')),
                 ('status', models.CharField(choices=[('draft', 'Draft'), ('approved_by_ba', 'Approved by BA'), ('rejected_by_ba', 'Rejected by BA')], default='draft', help_text='Статус документа (draft/approved/rejected).', max_length=50)),
