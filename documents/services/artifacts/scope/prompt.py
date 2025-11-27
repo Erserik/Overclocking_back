@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict
 
-PROMPT_VERSION = "scope:v1"
+PROMPT_VERSION = "vision:v1"
 
 SYSTEM_PROMPT = """
 Ты опытный бизнес-аналитик крупного банка.

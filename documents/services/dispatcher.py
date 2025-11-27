@@ -17,9 +17,9 @@ def get_artifact_prompt_bundle(doc_type: str) -> Tuple[str, str, str]:
     returns: (prompt_version, system_prompt, user_prompt_template_hash_source)
     """
     if doc_type == DocumentType.VISION:
-        return vision_prompt.PROMPT_VERSION, vision_prompt.SYSTEM_PROMPT, "vision"
+        return vision_prompt.PROMPT_VERSION, vision_prompt.SYSTEM_PROMPT, "scope"
     if doc_type == DocumentType.SCOPE:
-        return scope_prompt.PROMPT_VERSION, scope_prompt.SYSTEM_PROMPT, "scope"
+        return scope_prompt.PROMPT_VERSION, scope_prompt.SYSTEM_PROMPT, "vision"
     raise ValueError("Unsupported doc_type")
 
 
