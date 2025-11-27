@@ -15,6 +15,28 @@ REQUIRED_ANSWER_KEYS = [
     "success_criteria",
 ]
 
+# Все допустимые коды типов документов/диаграмм,
+# которые фронт может прислать в selected_document_types
+ALLOWED_DOCUMENT_TYPE_CODES = {
+    # Документы
+    "vision",
+    "scope",
+    "brd",
+    "user_stories",
+    "use_case",
+    "nfr",
+    "data_dictionary",
+    "integration_api_spec",
+    "uat_scenarios",
+
+    # Диаграммы
+    "bpmn",
+    "context_diagram",
+    "sequence_diagram",
+    "uml_use_case_diagram",
+    "erd",
+    "state_diagram",
+}
 
 class CaseSessionCreateSerializer(serializers.ModelSerializer):
     """
@@ -114,11 +136,21 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
         return value
 
     def validate_selected_document_types(self, value):
+        """
+        selected_document_types приходит с фронта как список кодов.
+        Мы проверяем, что:
+        - это список строк
+        - каждый код есть в ALLOWED_DOCUMENT_TYPE_CODES
+        - убираем дубликаты, сохраняя порядок
+        """
         if value is None:
             return value
 
         if not isinstance(value, list):
             raise serializers.ValidationError("selected_document_types must be a list")
+
+        cleaned = []
+        unknown = []
 
         for item in value:
             if not isinstance(item, str):
@@ -126,7 +158,19 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
                     "Each document type code must be a string"
                 )
 
-        return value
+            code = item.strip()
+            if code not in ALLOWED_DOCUMENT_TYPE_CODES:
+                unknown.append(code)
+            else:
+                if code not in cleaned:
+                    cleaned.append(code)
+
+        if unknown:
+            raise serializers.ValidationError(
+                f"Unknown document type codes: {', '.join(unknown)}"
+            )
+
+        return cleaned
 
     def update(self, instance, validated_data):
         """

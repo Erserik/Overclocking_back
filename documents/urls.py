@@ -1,25 +1,6 @@
 from django.urls import path
-
-from .views import (
-    GenerateDocumentsForCaseView,
-    CaseDocumentsListView,
-    GeneratedDocumentDetailView,
-)
+from .views import CaseDocumentsEnsureListView
 
 urlpatterns = [
-    path(
-        "cases/<uuid:pk>/generate-documents/",
-        GenerateDocumentsForCaseView.as_view(),
-        name="case-generate-documents",
-    ),
-    path(
-        "cases/<uuid:pk>/documents/",
-        CaseDocumentsListView.as_view(),
-        name="case-documents-list",
-    ),
-    path(
-        "documents/<uuid:pk>/",
-        GeneratedDocumentDetailView.as_view(),
-        name="document-detail",
-    ),
+    path("cases/<uuid:pk>/documents/", CaseDocumentsEnsureListView.as_view(), name="case-documents-ensure-list"),
 ]

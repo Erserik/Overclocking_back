@@ -6,8 +6,8 @@ from cases.models import Case
 
 class DocumentType(models.TextChoices):
     VISION = "vision", "Vision / Product Vision"
-    USE_CASE = "use_case", "Use Case"
-    # позже можно добавить: BRD, user_story и т.п.
+    SCOPE = "scope", "Scope (Solution Boundaries)"
+    # позже: BRD, USE_CASE, USER_STORIES, BPMN, ...
 
 
 class DocumentStatus(models.TextChoices):
@@ -16,10 +16,16 @@ class DocumentStatus(models.TextChoices):
     REJECTED_BY_BA = "rejected_by_ba", "Rejected by BA"
 
 
+class GenerationStatus(models.TextChoices):
+    READY = "ready", "Ready"
+    GENERATING = "generating", "Generating"
+    FAILED = "failed", "Failed"
+
+
 class GeneratedDocument(models.Model):
     """
-    Документ, сгенерированный GPT на основе кейса и ответов пользователя.
-    Например: Vision, Use Case и т.п.
+    1 артефакт = 1 LLM вызов = 1 structured_data JSON.
+    content — производный рендер из structured_data.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -28,43 +34,47 @@ class GeneratedDocument(models.Model):
         Case,
         on_delete=models.CASCADE,
         related_name="documents",
-        help_text="Кейс, для которого сгенерирован документ.",
     )
 
     doc_type = models.CharField(
         max_length=50,
         choices=DocumentType.choices,
-        help_text="Тип документа (vision, use_case и т.д.).",
     )
 
-    title = models.CharField(
-        max_length=255,
-        help_text="Заголовок документа (может быть сгенерирован из кейса).",
-    )
+    # главный источник истины
+    structured_data = models.JSONField(blank=True, null=True)
 
-    content = models.TextField(
-        help_text="Текст документа (Markdown или обычный текст).",
-    )
+    # производный текст (Markdown), строим из structured_data
+    title = models.CharField(max_length=255)
+    content = models.TextField()
 
     status = models.CharField(
         max_length=50,
         choices=DocumentStatus.choices,
         default=DocumentStatus.DRAFT,
-        help_text="Статус документа (draft/approved/rejected).",
     )
 
-    llm_model = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        help_text="Название модели, которая сгенерировала документ (например, gpt-4.1-mini).",
+    # чтобы управление промптами было отдельным по артефактам
+    prompt_version = models.CharField(max_length=50, blank=True, null=True)
+    prompt_hash = models.CharField(max_length=64, blank=True, null=True)
+
+    # чтобы понимать, что входные данные кейса поменялись
+    source_snapshot_hash = models.CharField(max_length=64, blank=True, null=True)
+
+    generation_status = models.CharField(
+        max_length=20,
+        choices=GenerationStatus.choices,
+        default=GenerationStatus.READY,
     )
+    error_message = models.TextField(blank=True, null=True)
+
+    llm_model = models.CharField(max_length=100, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("case", "doc_type")  # один документ каждого типа на кейс
+        unique_together = ("case", "doc_type")
         ordering = ["doc_type"]
 
     def __str__(self):
