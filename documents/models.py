@@ -6,8 +6,8 @@ from cases.models import Case
 
 class DocumentType(models.TextChoices):
     VISION = "vision", "Vision / Product Vision"
-    SCOPE = "scope", "Scope (Solution Boundaries)"
-    # позже: BRD, USE_CASE, USER_STORIES, BPMN, ...
+    SCOPE = "scope", "Scope"
+    # дальше можно добавить: BRD, use_case, и т.п.
 
 
 class DocumentStatus(models.TextChoices):
@@ -17,15 +17,16 @@ class DocumentStatus(models.TextChoices):
 
 
 class GenerationStatus(models.TextChoices):
-    READY = "ready", "Ready"
+    NEW = "new", "New"
     GENERATING = "generating", "Generating"
+    READY = "ready", "Ready"
     FAILED = "failed", "Failed"
 
 
 class GeneratedDocument(models.Model):
     """
-    1 артефакт = 1 LLM вызов = 1 structured_data JSON.
-    content — производный рендер из structured_data.
+    Документ, сгенерированный GPT на основе кейса и ответов пользователя.
+    Например: Vision, Scope и т.п.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -34,47 +35,100 @@ class GeneratedDocument(models.Model):
         Case,
         on_delete=models.CASCADE,
         related_name="documents",
+        help_text="Кейс, для которого сгенерирован документ.",
     )
 
     doc_type = models.CharField(
         max_length=50,
         choices=DocumentType.choices,
+        help_text="Тип документа (vision, scope, use_case и т.д.).",
     )
 
-    # главный источник истины
-    structured_data = models.JSONField(blank=True, null=True)
+    title = models.CharField(
+        max_length=255,
+        help_text="Заголовок документа (может быть сгенерирован из кейса).",
+    )
 
-    # производный текст (Markdown), строим из structured_data
-    title = models.CharField(max_length=255)
-    content = models.TextField()
+    # Markdown/текстовая версия
+    content = models.TextField(
+        blank=True,
+        help_text="Текст документа (Markdown или обычный текст).",
+    )
+
+    # Структурный JSON (P.0: Vision/Scope)
+    structured_data = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Структурированное представление документа (JSON), для доработок и экспорта.",
+    )
 
     status = models.CharField(
         max_length=50,
         choices=DocumentStatus.choices,
         default=DocumentStatus.DRAFT,
+        help_text="Статус документа (draft/approved/rejected).",
     )
-
-    # чтобы управление промптами было отдельным по артефактам
-    prompt_version = models.CharField(max_length=50, blank=True, null=True)
-    prompt_hash = models.CharField(max_length=64, blank=True, null=True)
-
-    # чтобы понимать, что входные данные кейса поменялись
-    source_snapshot_hash = models.CharField(max_length=64, blank=True, null=True)
 
     generation_status = models.CharField(
-        max_length=20,
+        max_length=50,
         choices=GenerationStatus.choices,
-        default=GenerationStatus.READY,
+        default=GenerationStatus.NEW,
+        help_text="Статус генерации (new/generating/ready/failed).",
     )
-    error_message = models.TextField(blank=True, null=True)
 
-    llm_model = models.CharField(max_length=100, blank=True, null=True)
+    llm_model = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Название модели, которая сгенерировала документ (например, gpt-4.1-mini).",
+    )
+
+    prompt_version = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="Версия промпта для этого типа документа.",
+    )
+
+    prompt_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text="Хеш system+user промпта для определения устаревания.",
+    )
+
+    source_snapshot_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text="Хеш исходных данных кейса (initial_answers + followups), на базе которых генерился документ.",
+    )
+
+    # ✅ DOCX-экспорт
+    docx_file = models.FileField(
+        upload_to="generated_docs/",
+        blank=True,
+        null=True,
+        help_text="Сгенерированный DOCX файл (экспорт).",
+    )
+
+    docx_generated_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="Когда был сгенерирован DOCX.",
+    )
+
+    error_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Сообщение об ошибке при генерации, если была.",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("case", "doc_type")
+        unique_together = ("case", "doc_type")  # один документ каждого типа на кейс
         ordering = ["doc_type"]
 
     def __str__(self):
