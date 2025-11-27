@@ -1,8 +1,13 @@
 from rest_framework import serializers
-from .models import GeneratedDocument
+
+from .models import GeneratedDocument, DocumentStatus
 
 
 class GeneratedDocumentSerializer(serializers.ModelSerializer):
+    """
+    Общий сериализатор документа (используется в списках и детальном просмотре).
+    """
+
     class Meta:
         model = GeneratedDocument
         fields = (
@@ -10,22 +15,32 @@ class GeneratedDocumentSerializer(serializers.ModelSerializer):
             "case",
             "doc_type",
             "title",
-            "structured_data",
             "content",
             "status",
             "generation_status",
-            "error_message",
+            "llm_model",
+            "structured_data",
             "prompt_version",
             "prompt_hash",
             "source_snapshot_hash",
-            "llm_model",
+            "error_message",
+            "docx_file",
+            "docx_generated_at",
             "created_at",
             "updated_at",
         )
         read_only_fields = fields
 
 
-class EnsureDocumentsResponseSerializer(serializers.Serializer):
-    documents = GeneratedDocumentSerializer(many=True)
-    errors = serializers.DictField(child=serializers.CharField())
-    did_generate_any = serializers.BooleanField()
+class DocumentReviewSerializer(serializers.Serializer):
+    """
+    Тело запроса для ревью документа (ANALYTIC / AUTHORITY).
+    """
+
+    status = serializers.ChoiceField(
+        choices=[
+            DocumentStatus.DRAFT,
+            DocumentStatus.APPROVED_BY_BA,
+            DocumentStatus.REJECTED_BY_BA,
+        ]
+    )

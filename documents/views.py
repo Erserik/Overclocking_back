@@ -1,13 +1,17 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, ValidationError, PermissionDenied
+from rest_framework.parsers import MultiPartParser, FormParser
 
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
 
-from cases.models import Case
-from cases.views import check_case_access  # ✅ используем общую логику доступа
-from documents.models import GeneratedDocument
+from django.utils import timezone
+
+from cases.models import Case, CaseStatus
+from cases.views import check_case_access, is_admin_user, is_analytic_user
+from .models import GeneratedDocument
+from .serializers import GeneratedDocumentSerializer, DocumentReviewSerializer
 from .services.ensure import ensure_case_documents
 from .services.docx_export import ensure_docx_for_document
 
@@ -35,10 +39,11 @@ class CaseDocumentsView(generics.GenericAPIView):
     POST /api/cases/{id}/documents/  — генерирует/обновляет документы и DOCX
     """
 
+    serializer_class = GeneratedDocumentSerializer  # чтобы DRF не ругался
+
     def _build_files_payload(self, request, case: Case):
         """
-        Вспомогательный метод: собрать payload по всем документам кейса.
-        НЕ вызывает ensure_case_documents, ожидает, что docs уже существуют.
+        Собрать payload по всем документам кейса.
         """
         docs = list(
             GeneratedDocument.objects.filter(case=case).order_by("doc_type")
@@ -78,7 +83,6 @@ class CaseDocumentsView(generics.GenericAPIView):
         except Case.DoesNotExist:
             raise NotFound("Case not found")
 
-        # Проверка прав: CLIENT только свои кейсы, AUTHORITY/ANALYTIC — все
         check_case_access(request.user, case)
 
         files = self._build_files_payload(request, case)
@@ -99,14 +103,11 @@ class CaseDocumentsView(generics.GenericAPIView):
         summary="Сгенерировать/обновить документы по кейсу и вернуть список DOCX-файлов",
         description=(
             "POST: запускает генерацию документов по кейсу (vision/scope и др.) и создание DOCX.\n\n"
-            "Шаги внутри:\n"
-            "1) ensure_case_documents(case) — создаёт отсутствующие документы (vision, scope и т.п.);\n"
-            "   если документ уже есть и structured_data не пустой — GPT повторно НЕ вызывается;\n"
-            "2) ensure_docx_for_document(doc) — для каждого документа создаёт DOCX, если его ещё нет;\n"
-            "3) Возвращает JSON со списком файлов: id, doc_type, title, docx_url, docx_path.\n\n"
             "Права доступа такие же, как у GET:\n"
             "- CLIENT может генерировать документы только по своим кейсам;\n"
-            "- AUTHORITY и ANALYTIC — по любому кейсу."
+            "- AUTHORITY и ANALYTIC — по любому кейсу.\n\n"
+            "Если хотя бы один документ был сгенерирован впервые, "
+            "статус кейса переводится в `documents_generated`."
         ),
         request=None,
         responses={
@@ -119,6 +120,7 @@ class CaseDocumentsView(generics.GenericAPIView):
     def post(self, request, pk, *args, **kwargs):
         """
         Генерирует документы (если их ещё нет) и DOCX-файлы, затем возвращает список.
+        Если что-то сгенерировали впервые — помечаем кейс как DOCUMENTS_GENERATED.
         """
         try:
             case = Case.objects.get(pk=pk)
@@ -137,7 +139,12 @@ class CaseDocumentsView(generics.GenericAPIView):
         for doc in docs:
             ensure_docx_for_document(doc, force=False)
 
-        # 3) собираем актуальный список файлов
+        # 3) если реально что-то сгенерили впервые — обновляем статус кейса
+        if did_generate_any and case.status != CaseStatus.DOCUMENTS_GENERATED:
+            case.status = CaseStatus.DOCUMENTS_GENERATED
+            case.save(update_fields=["status"])
+
+        # 4) собираем актуальный список файлов
         files = self._build_files_payload(request, case)
 
         payload = {
@@ -148,3 +155,94 @@ class CaseDocumentsView(generics.GenericAPIView):
             "files": files,
         }
         return Response(payload, status=status.HTTP_200_OK)
+
+
+# ======================= Ревью документа ANALYTIC =======================
+
+
+@extend_schema(
+    tags=["Documents"],
+    summary="Подтвердить или отклонить документ (роль ANALYTIC / AUTHORITY)",
+    description=(
+        "Позволяет роли ANALYTIC (и AUTHORITY) менять статус документа: "
+        "draft / approved_by_ba / rejected_by_ba.\n\n"
+        "CLIENT не имеет доступа к этому методу."
+    ),
+    request=DocumentReviewSerializer,
+    responses={200: GeneratedDocumentSerializer},
+)
+class DocumentReviewView(generics.GenericAPIView):
+    """
+    PATCH /api/documents/{id}/review/
+    """
+    serializer_class = DocumentReviewSerializer
+
+    def patch(self, request, pk, *args, **kwargs):
+        try:
+            doc = GeneratedDocument.objects.select_related("case").get(pk=pk)
+        except GeneratedDocument.DoesNotExist:
+            raise NotFound("Document not found")
+
+        user = request.user
+        # только ANALYTIC / AUTHORITY
+        if not (is_analytic_user(user) or is_admin_user(user)):
+            raise PermissionDenied("Only ANALYTIC or AUTHORITY can review documents")
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        new_status = serializer.validated_data["status"]
+        doc.status = new_status
+        doc.save(update_fields=["status", "updated_at"])
+
+        return Response(
+            GeneratedDocumentSerializer(doc).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Documents"],
+    summary="Заменить DOCX-файл документа (роль ANALYTIC / AUTHORITY)",
+    description=(
+        "Позволяет роли ANALYTIC (и AUTHORITY) загрузить свой DOCX-файл для документа.\n"
+        "Файл полностью заменяет сгенерированный. CLIENT не имеет доступа."
+    ),
+    request=None,
+    responses={
+        200: OpenApiResponse(
+            description="Обновлённый документ с новой ссылкой на DOCX",
+            response=GeneratedDocumentSerializer,
+        )
+    },
+)
+class DocumentUploadDocxView(generics.GenericAPIView):
+    """
+    POST /api/documents/{id}/upload-docx/
+    """
+    parser_classes = (MultiPartParser, FormParser)
+    serializer_class = GeneratedDocumentSerializer  # только для схемы
+
+    def post(self, request, pk, *args, **kwargs):
+        try:
+            doc = GeneratedDocument.objects.select_related("case").get(pk=pk)
+        except GeneratedDocument.DoesNotExist:
+            raise NotFound("Document not found")
+
+        user = request.user
+        if not (is_analytic_user(user) or is_admin_user(user)):
+            raise PermissionDenied("Only ANALYTIC or AUTHORITY can upload DOCX")
+
+        file_obj = request.FILES.get("file")
+        if not file_obj:
+            raise ValidationError("No file uploaded. Use form-data field 'file'.")
+
+        # Заменяем файл
+        doc.docx_file = file_obj
+        doc.docx_generated_at = timezone.now()
+        doc.save(update_fields=["docx_file", "docx_generated_at", "updated_at"])
+
+        return Response(
+            GeneratedDocumentSerializer(doc).data,
+            status=status.HTTP_200_OK,
+        )

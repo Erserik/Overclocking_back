@@ -16,6 +16,7 @@ from .serializers import (
     AnswerQuestionSerializer,
 )
 
+
 # ======================= Роли (AUTHORITY / ANALYTIC / CLIENT) =======================
 
 ADMIN_ROLES = {"AUTHORITY", "ANALYTIC"}
@@ -56,6 +57,18 @@ def get_user_roles(user) -> list[str]:
     return [str(r).upper() for r in roles if r]
 
 
+def has_role(user, role: str) -> bool:
+    return role.upper() in get_user_roles(user)
+
+
+def is_analytic_user(user) -> bool:
+    return has_role(user, "ANALYTIC")
+
+
+def is_authority_user(user) -> bool:
+    return has_role(user, "AUTHORITY")
+
+
 def is_admin_user(user) -> bool:
     """
     ADMIN в нашем смысле: AUTHORITY или ANALYTIC.
@@ -63,11 +76,8 @@ def is_admin_user(user) -> bool:
     return any(r in ADMIN_ROLES for r in get_user_roles(user))
 
 
-def check_case_access(user, case: Case) -> None:
+def check_case_access(user, case: "Case") -> None:
     """
-    Бросает PermissionDenied, если пользователь не имеет права
-    смотреть/изменять/удалять кейс.
-
     - AUTHORITY / ANALYTIC: доступ ко всем кейсам
     - остальные (CLIENT): только к кейсам, где requester_id = user.id
     """
@@ -81,7 +91,7 @@ def check_case_access(user, case: Case) -> None:
         raise PermissionDenied("You do not have access to this case")
 
 
-# ======================= Список / создание кейсов =======================
+# ======================= Views кейсов =======================
 
 
 @extend_schema(
@@ -92,8 +102,8 @@ def check_case_access(user, case: Case) -> None:
         'На этом шаге пользователь указывает только название (title) '
         'и, опционально, своё имя. В ответ возвращается uid кейса.\n\n'
         'GET /api/cases/:\n'
-        '- CLIENT видит только свои кейсы (фильтрация по requester_id из JWT);\n'
-        '- AUTHORITY и ANALYTIC видят все кейсы.'
+        '- CLIENT видит только СВОИ кейсы (requester_id = user.id)\n'
+        '- AUTHORITY и ANALYTIC видят ВСЕ кейсы.'
     ),
     request=CaseSessionCreateSerializer,
     responses={201: CaseSessionCreateSerializer},
@@ -110,30 +120,27 @@ def check_case_access(user, case: Case) -> None:
 )
 class CaseSessionCreateView(generics.ListCreateAPIView):
     """
-    GET  /api/cases/   — список кейсов (в зависимости от роли)
+    GET  /api/cases/   — список кейсов:
+         - CLIENT: только свои
+         - AUTHORITY / ANALYTIC: все
     POST /api/cases/   — создать новый кейс (сессию)
     """
     queryset = Case.objects.all().order_by("-created_at")
     serializer_class = CaseSessionCreateSerializer
 
     def get_queryset(self):
-        """
-        Для CLIENT — только свои кейсы.
-        Для AUTHORITY/ANALYTIC — все кейсы.
-        """
         qs = super().get_queryset()
         user = self.request.user
 
         if not getattr(user, "is_authenticated", False):
             return qs.none()
 
+        # админы (AUTHORITY / ANALYTIC) видят все кейсы
         if is_admin_user(user):
             return qs
 
+        # обычный клиент — только свои
         return qs.filter(requester_id=str(user.id))
-
-
-# ======================= Сохранение стартовых ответов =======================
 
 
 @extend_schema(
@@ -157,58 +164,44 @@ class CaseInitialAnswersUpdateView(generics.UpdateAPIView):
     lookup_field = "pk"
     http_method_names = ['put', 'options', 'head']
 
-    def get_object(self):
-        case = super().get_object()
-        check_case_access(self.request.user, case)
-        return case
-
-
-# ======================= Детальный просмотр / удаление кейса =======================
-
 
 @extend_schema(
     tags=['Cases'],
     summary='Получить или удалить кейс',
     description=(
-        'GET: Возвращает детальную информацию по кейсу: название, статус, инициатора, '
-        'ответы на стартовые вопросы (если уже заполнены), выбранные типы документов и follow-up вопросы.\n\n'
-        'DELETE: удаляет кейс.\n'
+        'GET — детальная информация по кейсу: название, статус, инициатор, '
+        'ответы на стартовые вопросы и выбранные типы документов.\n\n'
+        'DELETE — удалить кейс:\n'
         '- CLIENT может удалять только свои кейсы;\n'
-        '- AUTHORITY и ANALYTIC могут удалять любой кейс.\n'
-        'Удаление кейса каскадно удаляет связанные документы и уточняющие вопросы.'
+        '- AUTHORITY и ANALYTIC могут удалять любые кейсы.'
     ),
     responses={200: CaseDetailSerializer},
 )
 class CaseDetailView(generics.GenericAPIView):
     """
-    GET    /api/cases/{id}/    — детальная информация по кейсу
-    DELETE /api/cases/{id}/    — удалить кейс
+    GET    /api/cases/{id}/      — посмотреть кейс
+    DELETE /api/cases/{id}/      — удалить кейс
     """
-    queryset = Case.objects.all()
     serializer_class = CaseDetailSerializer
-    lookup_field = "pk"
 
-    def get_object(self):
-        case = super().get_object()
+    def get_object(self) -> Case:
+        try:
+            case = Case.objects.get(pk=self.kwargs["pk"])
+        except Case.DoesNotExist:
+            raise NotFound("Case not found")
+
         check_case_access(self.request.user, case)
         return case
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, pk, *args, **kwargs):
         case = self.get_object()
         serializer = self.get_serializer(case)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @extend_schema(
-        summary="Удалить кейс",
-        responses={204: None},
-    )
-    def delete(self, request, *args, **kwargs):
+    def delete(self, request, pk, *args, **kwargs):
         case = self.get_object()
         case.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-# ======================= Follow-up вопросы =======================
 
 
 @extend_schema(
@@ -245,7 +238,6 @@ class NextFollowupQuestionView(generics.GenericAPIView):
 
         if next_question is None:
             # нет ни одного ожидающего вопроса
-            # считаем, что кейс готов к генерации документов
             if case.status == CaseStatus.IN_PROGRESS:
                 case.status = CaseStatus.READY_FOR_DOCUMENTS
                 case.save(update_fields=["status"])
