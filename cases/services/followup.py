@@ -72,7 +72,7 @@ def _fallback_questions(case: Case) -> List[Dict[str, Any]]:
         }
     )
 
-    if "vision" in doc_types:
+    if "scope" in doc_types:
         questions_def.append(
             {
                 "code": "non_functional",
@@ -80,7 +80,7 @@ def _fallback_questions(case: Case) -> List[Dict[str, Any]]:
                     "Какие ключевые нефункциональные требования важны для решения "
                     "(производительность, доступность, аудит действий и т.п.)?"
                 ),
-                "target_document_types": ["vision"],
+                "target_document_types": ["scope"],
             }
         )
 
@@ -149,7 +149,7 @@ def generate_followup_questions_for_case(case: Case) -> List[FollowupQuestion]:
         "    {\n"
         '      \"code\": \"roles\",\n'
         '      \"text\": \"Какие ключевые роли пользователей будут работать с системой?\",\n'
-        '      \"target_document_types\": [\"vision\", \"use_case\"]\n'
+        '      \"target_document_types\": [\"scope\", \"use_case\"]\n'
         "    }\n"
         "  ]\n"
         "}\n"
