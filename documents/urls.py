@@ -1,6 +1,11 @@
 from django.urls import path
-from .views import CaseDocumentsEnsureListView
+
+from .views import CaseDocumentsView
 
 urlpatterns = [
-    path("cases/<uuid:pk>/documents/", CaseDocumentsEnsureListView.as_view(), name="case-documents-ensure-list"),
+    path(
+        "cases/<uuid:pk>/documents/",
+        CaseDocumentsView.as_view(),
+        name="case-documents",
+    ),
 ]
