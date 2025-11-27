@@ -6,22 +6,22 @@ def _bullets(items: List[str]) -> str:
 
 
 def render(data: Dict[str, Any]) -> str:
-    title = (data.get("title") or "").strip()
-    problem = (data.get("problem_statement") or "").strip()
+    summary = (data.get("summary") or "").strip() or "Требует уточнения на основании исходных данных"
 
     return (
-        "# Vision\n\n"
-        f"## {title}\n\n"
-        "### Problem statement\n"
-        f"{problem}\n\n"
-        "### Business goals\n"
-        f"{_bullets(data.get('business_goals', []))}\n\n"
-        "### Target users\n"
-        f"{_bullets(data.get('target_users', []))}\n\n"
-        "### Expected outcomes\n"
-        f"{_bullets(data.get('expected_outcomes', []))}\n\n"
-        "### Success criteria\n"
-        f"{_bullets(data.get('success_criteria', []))}\n\n"
-        "### Risks and limitations\n"
-        f"{_bullets(data.get('risks_and_limitations', []))}\n"
+        "# Scope\n\n"
+        "## Summary\n"
+        f"{summary}\n\n"
+        "## In scope\n"
+        f"{_bullets(data.get('in_scope', []))}\n\n"
+        "## Out of scope\n"
+        f"{_bullets(data.get('out_of_scope', []))}\n\n"
+        "## Business processes in scope\n"
+        f"{_bullets(data.get('business_processes_in_scope', []))}\n\n"
+        "## Systems in scope\n"
+        f"{_bullets(data.get('systems_in_scope', []))}\n\n"
+        "## Assumptions\n"
+        f"{_bullets(data.get('assumptions', []))}\n\n"
+        "## Constraints\n"
+        f"{_bullets(data.get('constraints', []))}\n"
     )
