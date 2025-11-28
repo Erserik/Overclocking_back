@@ -13,8 +13,13 @@ from drf_spectacular.types import OpenApiTypes
 from cases.models import Case, CaseStatus
 from cases.views import check_case_access, is_admin_user, is_analytic_user
 
-from .models import GeneratedDocument, DocumentType
-from .serializers import GeneratedDocumentSerializer, DocumentReviewSerializer
+from .models import GeneratedDocument, DocumentType, DocumentStatus
+from .serializers import (
+    GeneratedDocumentSerializer,
+    DocumentReviewSerializer,
+    DocumentLLMEditSerializer,
+)
+from .services.editing import apply_llm_edit
 from .services.ensure import ensure_case_documents
 from .services.docx_export import ensure_docx_for_document
 from .services.bpmn_image_export import ensure_bpmn_url_for_document
@@ -108,7 +113,7 @@ class CaseDocumentsView(generics.GenericAPIView):
             "POST: запускает ленивую генерацию документов по кейсу (vision/scope/bpmn и др.) "
             "и создание файлов:\n"
             "- для текстовых документов — DOCX;\n"
-            "- для диаграмм (BPMN) — только URL на PlantUML-сервер.\n"
+            "- для диаграмм (BPMN, context_diagram) — только URL на PlantUML-сервер.\n"
         ),
         request=None,
         responses={
@@ -158,7 +163,9 @@ class CaseDocumentsView(generics.GenericAPIView):
     summary="Подтвердить или отклонить документ (роль ANALYTIC / AUTHORITY)",
     description=(
         "Позволяет роли ANALYTIC (и AUTHORITY) менять статус документа: "
-        "`draft` / `approved_by_ba` / `rejected_by_ba`."
+        "`draft` / `approved_by_ba` / `rejected_by_ba`.\n\n"
+        "Если после изменения статуса ВСЕ документы кейса имеют статус "
+        "`approved_by_ba`, статус кейса автоматически переводится в `approved`."
     ),
     request=DocumentReviewSerializer,
     responses={200: GeneratedDocumentSerializer},
@@ -185,6 +192,18 @@ class DocumentReviewView(generics.GenericAPIView):
         new_status = serializer.validated_data["status"]
         doc.status = new_status
         doc.save(update_fields=["status", "updated_at"])
+
+        # ====== авто-обновление статуса кейса ======
+        case = doc.case
+        case_docs = case.documents.all()
+
+        # Если есть хотя бы один документ и все они approved_by_ba -> кейс approved
+        if case_docs.exists() and all(
+            d.status == DocumentStatus.APPROVED_BY_BA for d in case_docs
+        ):
+            if case.status != CaseStatus.APPROVED:
+                case.status = CaseStatus.APPROVED
+                case.save(update_fields=["status", "updated_at"])
 
         return Response(
             GeneratedDocumentSerializer(doc).data,
@@ -230,6 +249,56 @@ class DocumentUploadDocxView(generics.GenericAPIView):
         doc.docx_file = file_obj
         doc.docx_generated_at = timezone.now()
         doc.save(update_fields=["docx_file", "docx_generated_at", "updated_at"])
+
+        return Response(
+            GeneratedDocumentSerializer(doc).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Documents"],
+    summary="Отредактировать документ через AI (Vision/Scope)",
+    description=(
+        "Позволяет с помощью GPT внести правки в уже сгенерированный документ.\n\n"
+        "Сейчас поддерживаются только типы документов `vision` и `scope`.\n"
+        "В теле запроса передаются текстовые инструкции (на русском), например:\n"
+        "`\"Сделай формулировки более формальными и добавь раздел про риски внедрения\"`.\n\n"
+        "Результат: обновлённый structured_data документа и Markdown-контент."
+    ),
+    request=DocumentLLMEditSerializer,
+    responses={200: GeneratedDocumentSerializer},
+)
+class DocumentLLMEditView(generics.GenericAPIView):
+    """
+    POST /api/documents/{id}/llm-edit/
+    """
+    serializer_class = DocumentLLMEditSerializer
+
+    def post(self, request, pk, *args, **kwargs):
+        try:
+            doc = GeneratedDocument.objects.select_related("case").get(pk=pk)
+        except GeneratedDocument.DoesNotExist:
+            raise NotFound("Document not found")
+
+        user = request.user
+        # Права доступа — как на ревью/аплоад; при желании можно разрешить CLIENT
+        if not (is_analytic_user(user) or is_admin_user(user)):
+            raise PermissionDenied("Only ANALYTIC or AUTHORITY can edit documents via AI")
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instructions = serializer.validated_data["instructions"]
+
+        try:
+            doc = apply_llm_edit(doc, instructions)
+        except Exception as e:
+            raise ValidationError(str(e))
+
+        # по желанию сразу перегенерируем DOCX, чтобы был актуален
+        if doc.doc_type in (DocumentType.VISION, DocumentType.SCOPE):
+            from .services.docx_export import ensure_docx_for_document
+            ensure_docx_for_document(doc, force=True)
 
         return Response(
             GeneratedDocumentSerializer(doc).data,
