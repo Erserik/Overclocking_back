@@ -1,3 +1,5 @@
+# documents/views.py
+
 from django.utils import timezone
 
 from rest_framework import generics, status
@@ -15,7 +17,7 @@ from .models import GeneratedDocument, DocumentType
 from .serializers import GeneratedDocumentSerializer, DocumentReviewSerializer
 from .services.ensure import ensure_case_documents
 from .services.docx_export import ensure_docx_for_document
-from .services.bpmn_image_export import ensure_bpmn_url_for_document  # <== тут
+from .services.bpmn_image_export import ensure_bpmn_url_for_document
 
 
 @extend_schema(
@@ -36,6 +38,11 @@ from .services.bpmn_image_export import ensure_bpmn_url_for_document  # <== ту
     },
 )
 class CaseDocumentsView(generics.GenericAPIView):
+    """
+    GET  /api/cases/{id}/documents/  — просто достаёт текущие документы (без генерации LLM)
+    POST /api/cases/{id}/documents/  — генерирует/обновляет документы и файлы (DOCX + diagram_url)
+    """
+
     serializer_class = GeneratedDocumentSerializer
 
     def _build_files_payload(self, request, case: Case):
@@ -52,9 +59,9 @@ class CaseDocumentsView(generics.GenericAPIView):
                 docx_path = doc.docx_file.name
                 docx_url = request.build_absolute_uri(doc.docx_file.url)
 
-            # Диаграмма: теперь только URL (PlantUML server)
+            # Диаграмма: только URL на PlantUML-сервер (PNG)
             diagram_url = doc.diagram_url
-            diagram_path = None  # файлов не храним
+            diagram_path = None  # файлов локально нет
 
             files.append(
                 {
@@ -71,6 +78,8 @@ class CaseDocumentsView(generics.GenericAPIView):
             )
 
         return files
+
+    # ---------- GET: только чтение, без генерации ----------
 
     def get(self, request, pk, *args, **kwargs):
         try:
@@ -89,6 +98,8 @@ class CaseDocumentsView(generics.GenericAPIView):
             "files": files,
         }
         return Response(payload, status=status.HTTP_200_OK)
+
+    # ---------- POST: генерация документов + файлов ----------
 
     @extend_schema(
         tags=["Documents"],
@@ -123,7 +134,7 @@ class CaseDocumentsView(generics.GenericAPIView):
         for doc in docs:
             if doc.doc_type in (DocumentType.VISION, DocumentType.SCOPE):
                 ensure_docx_for_document(doc, force=False)
-            if doc.doc_type == DocumentType.BPMN:
+            if doc.doc_type in (DocumentType.BPMN, DocumentType.CONTEXT_DIAGRAM):
                 ensure_bpmn_url_for_document(doc, force=False)
 
         if did_generate_any and case.status != CaseStatus.DOCUMENTS_GENERATED:
@@ -153,6 +164,9 @@ class CaseDocumentsView(generics.GenericAPIView):
     responses={200: GeneratedDocumentSerializer},
 )
 class DocumentReviewView(generics.GenericAPIView):
+    """
+    PATCH /api/documents/{id}/review/
+    """
     serializer_class = DocumentReviewSerializer
 
     def patch(self, request, pk, *args, **kwargs):
@@ -193,6 +207,9 @@ class DocumentReviewView(generics.GenericAPIView):
     },
 )
 class DocumentUploadDocxView(generics.GenericAPIView):
+    """
+    POST /api/documents/{id}/upload-docx/
+    """
     parser_classes = (MultiPartParser, FormParser)
     serializer_class = GeneratedDocumentSerializer
 
