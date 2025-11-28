@@ -1,3 +1,5 @@
+# documents/services/ensure.py
+
 import logging
 from typing import Dict, List, Tuple
 
@@ -16,15 +18,23 @@ from .dispatcher import compute_prompt_hash, generate_structured_and_render
 from .artifacts.vision import prompt as vision_prompt
 from .artifacts.scope import prompt as scope_prompt
 from .artifacts.bpmn import prompt as bpmn_prompt
+from .artifacts.context_diagram import prompt as ctx_prompt  # 👈 ВАЖНО
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_DOC_TYPES = {DocumentType.VISION, DocumentType.SCOPE, DocumentType.BPMN}
+# Теперь context_diagram тоже поддерживается
+SUPPORTED_DOC_TYPES = {
+    DocumentType.VISION,
+    DocumentType.SCOPE,
+    DocumentType.BPMN,
+    DocumentType.CONTEXT_DIAGRAM,
+}
 
 
 def _artifact_prompts(doc_type: str, case_context: dict) -> Tuple[str, str, str]:
     """
-    returns (prompt_version, system_prompt, user_prompt)
+    Возвращает (prompt_version, system_prompt, user_prompt)
+    — нужно только для логирования/хэша промпта.
     """
     if doc_type == DocumentType.VISION:
         return (
@@ -32,29 +42,42 @@ def _artifact_prompts(doc_type: str, case_context: dict) -> Tuple[str, str, str]
             vision_prompt.SYSTEM_PROMPT,
             vision_prompt.build_user_prompt(case_context),
         )
+
     if doc_type == DocumentType.SCOPE:
         return (
             scope_prompt.PROMPT_VERSION,
             scope_prompt.SYSTEM_PROMPT,
             scope_prompt.build_user_prompt(case_context),
         )
+
     if doc_type == DocumentType.BPMN:
         return (
             bpmn_prompt.PROMPT_VERSION,
             bpmn_prompt.SYSTEM_PROMPT,
             bpmn_prompt.build_user_prompt(case_context),
         )
-    raise ValueError("Unsupported doc_type")
+
+    if doc_type == DocumentType.CONTEXT_DIAGRAM:
+        return (
+            ctx_prompt.PROMPT_VERSION,
+            ctx_prompt.SYSTEM_PROMPT,
+            ctx_prompt.build_user_prompt(case_context),
+        )
+
+    # сюда больше попадать не должны
+    raise ValueError(f"Unsupported doc_type: {doc_type}")
 
 
 def ensure_case_documents(case: Case) -> Tuple[List[GeneratedDocument], Dict[str, str], bool]:
     """
-    Lazy generation по GET:
-    - Работает В ЛЮБОЙ МОМЕНТ (не важно статус кейса и полнота ответов).
-    - Создаёт только отсутствующие документы (или те, у которых structured_data пустой).
-    - Если selected_document_types пуст — по умолчанию делаем scope + vision (P.0).
+    Ленивое создание документов:
+    - Работает при любом статусе кейса.
+    - Создаёт только те документы, у которых ещё нет structured_data.
+    - Если selected_document_types пуст — по умолчанию VISION + SCOPE.
     """
+    # например: ["vision", "scope", "context_diagram", "bpmn"]
     selected = case.selected_document_types or [DocumentType.VISION, DocumentType.SCOPE]
+    # отфильтровали только те, которые реально поддерживаем
     target = [t for t in selected if t in SUPPORTED_DOC_TYPES]
 
     errors: Dict[str, str] = {}
@@ -67,11 +90,17 @@ def ensure_case_documents(case: Case) -> Tuple[List[GeneratedDocument], Dict[str
         locked_case = Case.objects.select_for_update().get(pk=case.pk)
 
         for doc_type in target:
-            existing = GeneratedDocument.objects.filter(case=locked_case, doc_type=doc_type).first()
+            existing = GeneratedDocument.objects.filter(
+                case=locked_case,
+                doc_type=doc_type,
+            ).first()
+
+            # если уже есть structured_data — ничего не делаем
             if existing and existing.structured_data:
-                continue  # уже готов
+                continue
 
             try:
+                # ставим статус GENERATING
                 doc, _ = GeneratedDocument.objects.update_or_create(
                     case=locked_case,
                     doc_type=doc_type,
@@ -86,10 +115,15 @@ def ensure_case_documents(case: Case) -> Tuple[List[GeneratedDocument], Dict[str
                     },
                 )
 
+                # промпты — только чтобы посчитать хэш и сохранить версию
                 prompt_version, system_prompt, user_prompt = _artifact_prompts(doc_type, case_context)
                 p_hash = compute_prompt_hash(system_prompt, user_prompt)
 
-                structured, content, title, used_model = generate_structured_and_render(doc_type, case_context)
+                # основная магия — вызывает нужный генератор (vision/scope/bpmn/context)
+                structured, content, title, used_model = generate_structured_and_render(
+                    doc_type,
+                    case_context,
+                )
 
                 doc.title = title
                 doc.content = content

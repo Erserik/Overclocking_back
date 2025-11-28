@@ -1,3 +1,5 @@
+# documents/models.py
+
 import uuid
 from django.db import models
 
@@ -8,7 +10,8 @@ class DocumentType(models.TextChoices):
     VISION = "vision", "Vision / Product Vision"
     SCOPE = "scope", "Scope / Product Scope"
     BPMN = "bpmn", "BPMN Diagram"
-    # позже: BRD, user_stories, context_diagram и т.п.
+    CONTEXT_DIAGRAM = "context_diagram", "Context Diagram"
+    # позже: SEQUENCE, USE_CASE, ERD и т.п.
 
 
 class DocumentStatus(models.TextChoices):
@@ -27,7 +30,7 @@ class GenerationStatus(models.TextChoices):
 class GeneratedDocument(models.Model):
     """
     Документ или диаграмма, сгенерированные GPT на основе кейса и ответов пользователя.
-    Например: Vision, Scope, BPMN и т.п.
+    Например: Vision, Scope, BPMN, Context Diagram и т.п.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -42,15 +45,17 @@ class GeneratedDocument(models.Model):
     doc_type = models.CharField(
         max_length=50,
         choices=DocumentType.choices,
-        help_text="Тип документа (vision, scope, bpmn и т.д.).",
+        help_text="Тип документа (vision, scope, bpmn, context_diagram и т.д.).",
     )
 
     title = models.CharField(max_length=255)
 
-    # Markdown / текстовое представление (для Vision/Scope, для BPMN – описание + ```plantuml``` блок)
+    # Markdown / текстовое представление
+    # Для Vision/Scope — полноценный текст.
+    # Для BPMN/Context — можно хранить PlantUML-код или краткое описание + блок ```plantuml```.
     content = models.TextField(blank=True)
 
-    # Структурированный JSON (для Vision/Scope – разделы, для BPMN – plantuml + метаданные)
+    # Структурированный JSON (Vision/Scope — разделы; BPMN/Context — plantuml + метаданные)
     structured_data = models.JSONField(blank=True, null=True)
 
     status = models.CharField(
@@ -113,11 +118,11 @@ class GeneratedDocument(models.Model):
         help_text="Когда последний раз генерировался DOCX.",
     )
 
-    # ✅ только ссылка на картинку диаграммы на PlantUML-сервере
+    # URL PNG для диаграмм (BPMN, Context и т.п.) на PlantUML-сервере
     diagram_url = models.URLField(
         blank=True,
         null=True,
-        help_text="External PlantUML server image URL for diagram-like documents.",
+        help_text="Ссылка на картинку диаграммы (PNG) на PlantUML-сервере.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
