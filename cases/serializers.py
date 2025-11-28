@@ -1,3 +1,4 @@
+# cases/serializers.py
 from rest_framework import serializers
 
 from .models import (
@@ -64,6 +65,8 @@ class CaseSessionCreateSerializer(serializers.ModelSerializer):
             "requester_id",
             "requester_name",
             "status",
+            "confluence_space_key",
+            "confluence_space_name",
             "created_at",
             "updated_at",
         )
@@ -71,6 +74,8 @@ class CaseSessionCreateSerializer(serializers.ModelSerializer):
             "id",
             "requester_id",
             "status",
+            "confluence_space_key",
+            "confluence_space_name",
             "created_at",
             "updated_at",
         )
@@ -109,7 +114,7 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
     Шаг 2: сохранение ответов на 8 вопросов и типов документов
     для уже созданного кейса.
 
-    После успешного сохранения вызываем генерацию плана уточняющих вопросов.
+    Здесь же можно сохранить выбранное Confluence-пространство.
     """
 
     class Meta:
@@ -122,6 +127,8 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
             "status",
             "initial_answers",
             "selected_document_types",
+            "confluence_space_key",
+            "confluence_space_name",
             "created_at",
             "updated_at",
         )
@@ -194,16 +201,25 @@ class CaseInitialAnswersSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         """
         Обновляем initial_answers и selected_document_types,
-        ставим статус IN_PROGRESS и генерируем план уточняющих вопросов.
+        Confluence-пространство, ставим статус IN_PROGRESS
+        и генерируем план уточняющих вопросов.
         """
         initial_answers = validated_data.get("initial_answers")
         selected_document_types = validated_data.get("selected_document_types")
+        space_key = validated_data.get("confluence_space_key")
+        space_name = validated_data.get("confluence_space_name")
 
         if initial_answers is not None:
             instance.initial_answers = initial_answers
 
         if selected_document_types is not None:
             instance.selected_document_types = selected_document_types
+
+        if space_key is not None:
+            instance.confluence_space_key = space_key
+
+        if space_name is not None:
+            instance.confluence_space_name = space_name
 
         instance.status = CaseStatus.IN_PROGRESS
         instance.save()
@@ -258,6 +274,8 @@ class CaseDetailSerializer(serializers.ModelSerializer):
             "requester_name",
             "initial_answers",
             "selected_document_types",
+            "confluence_space_key",
+            "confluence_space_name",
             "created_at",
             "updated_at",
             "followup_questions",
