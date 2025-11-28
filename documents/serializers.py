@@ -5,32 +5,72 @@ from .models import GeneratedDocument, DocumentStatus
 
 class GeneratedDocumentSerializer(serializers.ModelSerializer):
     """
-    Общий сериализатор документа (используется в списках и детальном просмотре).
+    Основной сериализатор для документа:
+    - docx_url: абсолютная ссылка на DOCX (по FileField)
+    - diagram_url: уже готовый URL на PlantUML-сервер (строка из модели)
     """
+
+    docx_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = GeneratedDocument
-        fields = (
+        fields = [
             "id",
             "case",
             "doc_type",
             "title",
             "content",
+            "structured_data",
             "status",
             "generation_status",
             "llm_model",
-            "structured_data",
             "prompt_version",
             "prompt_hash",
             "source_snapshot_hash",
             "error_message",
+
+            # DOCX (файл + удобный абсолютный URL + дата генерации)
             "docx_file",
+            "docx_url",
             "docx_generated_at",
-            "diagram_file",
+
+            # Диаграмма — только URL (мы больше не храним файл)
+            "diagram_url",
+
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = (
+            "id",
+            "case",
+            "generation_status",
+            "llm_model",
+            "prompt_version",
+            "prompt_hash",
+            "source_snapshot_hash",
+            "error_message",
+            "docx_generated_at",
+            "diagram_url",
             "created_at",
             "updated_at",
         )
-        read_only_fields = fields
+
+    def get_docx_url(self, obj) -> str | None:
+        """
+        Абсолютный URL до DOCX, чтобы фронту было удобно.
+        """
+        request = self.context.get("request")
+        if not obj.docx_file:
+            return None
+        try:
+            url = obj.docx_file.url
+        except ValueError:
+            return None
+
+        if request:
+            return request.build_absolute_uri(url)
+        return url
+
 
 
 class DocumentReviewSerializer(serializers.Serializer):
