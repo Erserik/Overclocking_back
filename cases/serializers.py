@@ -74,8 +74,6 @@ class CaseSessionCreateSerializer(serializers.ModelSerializer):
             "id",
             "requester_id",
             "status",
-            "confluence_space_key",
-            "confluence_space_name",
             "created_at",
             "updated_at",
         )
