@@ -1,5 +1,6 @@
 # documents/views.py
 
+import logging
 from django.utils import timezone
 
 from rest_framework import generics, status
@@ -23,6 +24,9 @@ from .services.editing import apply_llm_edit
 from .services.ensure import ensure_case_documents
 from .services.docx_export import ensure_docx_for_document
 from .services.bpmn_image_export import ensure_bpmn_url_for_document
+from .services.confluence_publish import publish_case_to_confluence  # ✅ заглушка
+
+logger = logging.getLogger(__name__)
 
 
 @extend_schema(
@@ -165,7 +169,8 @@ class CaseDocumentsView(generics.GenericAPIView):
         "Позволяет роли ANALYTIC (и AUTHORITY) менять статус документа: "
         "`draft` / `approved_by_ba` / `rejected_by_ba`.\n\n"
         "Если после изменения статуса ВСЕ документы кейса имеют статус "
-        "`approved_by_ba`, статус кейса автоматически переводится в `approved`."
+        "`approved_by_ba`, вызывается publish_case_to_confluence(case) "
+        "(сейчас заглушка, которая просто ставит кейсу статус `approved`)."
     ),
     request=DocumentReviewSerializer,
     responses={200: GeneratedDocumentSerializer},
@@ -193,17 +198,20 @@ class DocumentReviewView(generics.GenericAPIView):
         doc.status = new_status
         doc.save(update_fields=["status", "updated_at"])
 
-        # ====== авто-обновление статуса кейса ======
         case = doc.case
-        case_docs = case.documents.all()
 
-        # Если есть хотя бы один документ и все они approved_by_ba -> кейс approved
-        if case_docs.exists() and all(
-            d.status == DocumentStatus.APPROVED_BY_BA for d in case_docs
-        ):
-            if case.status != CaseStatus.APPROVED:
-                case.status = CaseStatus.APPROVED
-                case.save(update_fields=["status", "updated_at"])
+        # если документ одобрили, проверяем, все ли доки кейса одобрены
+        if new_status == DocumentStatus.APPROVED_BY_BA:
+            all_docs = list(case.documents.all())
+            if all_docs and all(d.status == DocumentStatus.APPROVED_BY_BA for d in all_docs):
+                try:
+                    publish_case_to_confluence(case)
+                except Exception as e:
+                    logger.exception(
+                        "Failed to publish case %s to Confluence: %s",
+                        case.id,
+                        e,
+                    )
 
         return Response(
             GeneratedDocumentSerializer(doc).data,
@@ -282,7 +290,6 @@ class DocumentLLMEditView(generics.GenericAPIView):
             raise NotFound("Document not found")
 
         user = request.user
-        # Права доступа — как на ревью/аплоад; при желании можно разрешить CLIENT
         if not (is_analytic_user(user) or is_admin_user(user)):
             raise PermissionDenied("Only ANALYTIC or AUTHORITY can edit documents via AI")
 
@@ -297,7 +304,6 @@ class DocumentLLMEditView(generics.GenericAPIView):
 
         # по желанию сразу перегенерируем DOCX, чтобы был актуален
         if doc.doc_type in (DocumentType.VISION, DocumentType.SCOPE):
-            from .services.docx_export import ensure_docx_for_document
             ensure_docx_for_document(doc, force=True)
 
         return Response(

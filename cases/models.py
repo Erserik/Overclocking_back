@@ -20,14 +20,13 @@ class Case(models.Model):
     3) Генерируем план уточняющих вопросов.
     4) Пользователь отвечает на уточняющие вопросы.
     5) Генерируем документы.
-    6) Аналитик/заказчик утверждает документы -> статус APPROVED.
+    6) BA одобряет документы → отправляем всё в Confluence.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # Название кейса / проекта / запроса
     title = models.CharField(max_length=255)
 
     # ID пользователя из Java/Spring авторизации
@@ -46,18 +45,24 @@ class Case(models.Model):
     # Выбранные типы документов (например ["scope", "use_case"])
     selected_document_types = models.JSONField(blank=True, null=True)
 
-    # ✅ выбранное Confluence-пространство (для привязки артефактов)
+    # ✅ Выбранный space в Confluence
     confluence_space_key = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text="Ключ выбранного пространства Confluence (например, PROD-BANK)",
+        max_length=255, blank=True, null=True,
+        help_text="Ключ пространства Confluence (например CRP)"
     )
     confluence_space_name = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text="Человекочитаемое имя пространства Confluence",
+        max_length=255, blank=True, null=True,
+        help_text="Отображаемое имя пространства Confluence"
+    )
+
+    # ✅ Страница, куда мы выгрузили документы
+    confluence_page_id = models.CharField(
+        max_length=255, blank=True, null=True,
+        help_text="ID созданной страницы в Confluence"
+    )
+    confluence_page_url = models.URLField(
+        blank=True, null=True,
+        help_text="URL созданной страницы в Confluence"
     )
 
     class Meta:

@@ -37,6 +37,8 @@ def build_case_context(case: Case) -> Dict[str, Any]:
             # ✅ добавили привязку к Confluence
             "confluence_space_key": case.confluence_space_key,
             "confluence_space_name": case.confluence_space_name,
+            "confluence_page_id": case.confluence_page_id,
+            "confluence_page_url": case.confluence_page_url,
         },
         "followup_answers": followup_block,
     }
