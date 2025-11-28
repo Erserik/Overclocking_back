@@ -4,6 +4,7 @@ from .views import (
     CaseDocumentsView,
     DocumentReviewView,
     DocumentUploadDocxView,
+    DocumentLLMEditView,
 )
 
 urlpatterns = [
@@ -22,4 +23,8 @@ urlpatterns = [
         DocumentUploadDocxView.as_view(),
         name="document-upload-docx",
     ),
+    path("documents/<uuid:pk>/llm-edit/",
+         DocumentLLMEditView.as_view(),
+         name="document-llm-edit"),
+
 ]

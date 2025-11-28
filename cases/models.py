@@ -7,6 +7,7 @@ class CaseStatus(models.TextChoices):
     IN_PROGRESS = "in_progress", "In progress"
     READY_FOR_DOCUMENTS = "ready_for_documents", "Ready for documents"
     DOCUMENTS_GENERATED = "documents_generated", "Documents generated"
+    APPROVED = "approved", "Approved"
 
 
 class Case(models.Model):

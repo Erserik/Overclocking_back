@@ -85,3 +85,17 @@ class DocumentReviewSerializer(serializers.Serializer):
             DocumentStatus.REJECTED_BY_BA,
         ]
     )
+
+class DocumentLLMEditSerializer(serializers.Serializer):
+    """
+    Запрос на правку документа через AI.
+
+    Пример тела:
+    {
+      "instructions": "Сделай формулировки более формальными и добавь раздел про риски внедрения."
+    }
+    """
+    instructions = serializers.CharField(
+        help_text="Инструкции для AI, как изменить документ",
+        allow_blank=False,
+    )
