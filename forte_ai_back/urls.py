@@ -8,6 +8,7 @@ from drf_spectacular.views import (
 
 from django.conf import settings
 from django.conf.urls.static import static
+from integrations.confluence.views import ConfluenceSpacesView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -22,6 +23,8 @@ urlpatterns = [
 
     path('api/', include('cases.urls')),
     path('api/', include('documents.urls')),
+
+    path("api/confluence/spaces/", ConfluenceSpacesView.as_view(), name="confluence-spaces"),
 
 ]
 if settings.DEBUG:

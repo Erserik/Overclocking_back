@@ -1,3 +1,4 @@
+# cases/models.py
 import uuid
 from django.db import models
 
@@ -7,7 +8,7 @@ class CaseStatus(models.TextChoices):
     IN_PROGRESS = "in_progress", "In progress"
     READY_FOR_DOCUMENTS = "ready_for_documents", "Ready for documents"
     DOCUMENTS_GENERATED = "documents_generated", "Documents generated"
-    APPROVED = "approved", "Approved"
+    APPROVED = "approved", "Approved"  # ✅ когда все документы приняты
 
 
 class Case(models.Model):
@@ -19,6 +20,7 @@ class Case(models.Model):
     3) Генерируем план уточняющих вопросов.
     4) Пользователь отвечает на уточняющие вопросы.
     5) Генерируем документы.
+    6) Аналитик/заказчик утверждает документы -> статус APPROVED.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -43,6 +45,20 @@ class Case(models.Model):
 
     # Выбранные типы документов (например ["scope", "use_case"])
     selected_document_types = models.JSONField(blank=True, null=True)
+
+    # ✅ выбранное Confluence-пространство (для привязки артефактов)
+    confluence_space_key = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Ключ выбранного пространства Confluence (например, PROD-BANK)",
+    )
+    confluence_space_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Человекочитаемое имя пространства Confluence",
+    )
 
     class Meta:
         verbose_name = "Case"
