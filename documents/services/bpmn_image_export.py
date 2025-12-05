@@ -1,4 +1,4 @@
-# documents/services/bpmn_image_export.py
+from __future__ import annotations
 
 import logging
 import zlib
@@ -9,9 +9,10 @@ from documents.models import GeneratedDocument, DocumentType
 
 logger = logging.getLogger(__name__)
 
+# публичный дефолт, если в settings ничего не указано
 DEFAULT_PLANTUML_SERVER = "https://www.plantuml.com/plantuml"
 
-# ====== кодирование PlantUML в short URL ======
+# ====== кодирование PlantUML в short URL (как в оф. доках) ======
 
 _PU_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"
 
@@ -36,12 +37,13 @@ def _append_3bytes(b1: int, b2: int, b3: int) -> str:
 def encode_plantuml(text: str) -> str:
     """
     Deflate (wbits=-MAX_WBITS) + спец. base64 от PlantUML.
+    Результат — короткая строка, которую подставляем в /png/<code>.
     """
     data = text.encode("utf-8")
     compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
     compressed = compressor.compress(data) + compressor.flush()
 
-    res = []
+    res: list[str] = []
     i = 0
     length = len(compressed)
     while i < length:
@@ -56,6 +58,8 @@ def encode_plantuml(text: str) -> str:
 def build_plantuml_url(uml_code: str) -> str:
     """
     Строим прямую ссылку на PNG на PlantUML-сервере.
+    Пример:
+      https://www.plantuml.com/plantuml/png/SoWkIImgAStDuU8g...
     """
     server = getattr(settings, "PLANTUML_SERVER_URL", DEFAULT_PLANTUML_SERVER)
     encoded = encode_plantuml(uml_code)
@@ -70,13 +74,13 @@ def _build_fallback_plantuml(doc: GeneratedDocument) -> str:
     title = (getattr(case, "title", None) or doc.title or "New Case").strip()
 
     return f"""@startuml
-title BPMN: {title}
+title {title}
 
 start
 :Клиент заполняет кейс в форме;
-:AI-агент собирает 8 базовых ответов;
+:AI-агент собирает базовые ответы;
 :AI-агент задаёт уточняющие вопросы;
-:Генерация документов (Vision, Scope, BPMN);
+:Генерация документов (Vision, Scope, диаграммы);
 if (BA одобрил документы?) then (yes)
   :Документы уходят в Confluence / Jira;
 else (no)
@@ -94,40 +98,49 @@ def ensure_bpmn_url_for_document(
 ) -> GeneratedDocument:
     """
     Генерирует и сохраняет URL на PlantUML-диаграмму
-    для документов с типом BPMN ИЛИ CONTEXT_DIAGRAM.
+    для документов с типом BPMN / CONTEXT_DIAGRAM / UML_USE_CASE_DIAGRAM.
 
-    Использует structured_data["plantuml"] (или plantuml_code),
-    при отсутствии — fallback PlantUML.
+    Берёт PlantUML-код из:
+    - structured_data["plantuml"]  (основной кейс)
+    - или structured_data["plantuml_code"]
+    - или doc.content
+    Если нигде кода нет — использует fallback.
     """
 
-    # ✅ работаем и с BPMN, и с Context Diagram
-    if doc.doc_type not in (DocumentType.BPMN, DocumentType.CONTEXT_DIAGRAM):
+    if doc.doc_type not in (
+        DocumentType.BPMN,
+        DocumentType.CONTEXT_DIAGRAM,
+        DocumentType.UML_USE_CASE_DIAGRAM,
+    ):
         return doc
 
-    # если URL уже есть и не просили пересоздать — ничего не делаем
+    # если URL уже есть и не просили пересоздать — выходим
     if doc.diagram_url and not force:
         return doc
 
     structured = doc.structured_data or {}
 
-    # поддерживаем оба ключа: "plantuml" и "plantuml_code"
-    plantuml_code = (
+    plantuml_code: str = (
         structured.get("plantuml")
         or structured.get("plantuml_code")
         or doc.content
+        or ""
     )
 
-    if not plantuml_code:
+    if not plantuml_code.strip():
         logger.warning(
             "No PlantUML code in structured_data/content for doc=%s (type=%s), using fallback",
             doc.id,
             doc.doc_type,
         )
-        # можем использовать общий fallback
         plantuml_code = _build_fallback_plantuml(doc)
 
-    logger.info("PlantUML for doc %s (type=%s):\n%s",
-                doc.id, doc.doc_type, plantuml_code[:400])
+    logger.info(
+        "PlantUML for doc %s (type=%s): first 400 chars:\n%s",
+        doc.id,
+        doc.doc_type,
+        plantuml_code[:400],
+    )
 
     url = build_plantuml_url(plantuml_code)
     doc.diagram_url = url
