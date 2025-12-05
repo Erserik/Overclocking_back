@@ -1,5 +1,3 @@
-# documents/services/ensure.py
-
 import logging
 from typing import Dict, List, Tuple
 
@@ -22,12 +20,13 @@ from .artifacts.context_diagram import prompt as ctx_prompt  # 👈 ВАЖНО
 
 logger = logging.getLogger(__name__)
 
-# Теперь context_diagram тоже поддерживается
+# Теперь context_diagram и uml_use_case_diagram тоже поддерживаются
 SUPPORTED_DOC_TYPES = {
     DocumentType.VISION,
     DocumentType.SCOPE,
     DocumentType.BPMN,
     DocumentType.CONTEXT_DIAGRAM,
+    DocumentType.UML_USE_CASE_DIAGRAM,  # 👈 ДОБАВЛЕНО
 }
 
 
@@ -64,6 +63,14 @@ def _artifact_prompts(doc_type: str, case_context: dict) -> Tuple[str, str, str]
             ctx_prompt.build_user_prompt(case_context),
         )
 
+    if doc_type == DocumentType.UML_USE_CASE_DIAGRAM:
+        # Для use case пока нет отдельного промпта — здесь просто фиктивные строки
+        # Они НИКОГДА не идут в LLM, только для hash/версии.
+        title = case_context.get("case", {}).get("title", "Без названия")
+        system_prompt = "UML use case diagram auto-generation"
+        user_prompt = f"Generate UML use case diagram for case: {title}"
+        return "uml_use_case_v1", system_prompt, user_prompt
+
     # сюда больше попадать не должны
     raise ValueError(f"Unsupported doc_type: {doc_type}")
 
@@ -74,6 +81,9 @@ def ensure_case_documents(case: Case) -> Tuple[List[GeneratedDocument], Dict[str
     - Работает при любом статусе кейса.
     - Создаёт только те документы, у которых ещё нет structured_data.
     - Если selected_document_types пуст — по умолчанию VISION + SCOPE.
+
+    В selected_document_types лежат коды, совпадающие со значениями DocumentType:
+      "vision", "scope", "bpmn", "context_diagram", "uml_use_case_diagram".
     """
     # например: ["vision", "scope", "context_diagram", "bpmn"]
     selected = case.selected_document_types or [DocumentType.VISION, DocumentType.SCOPE]
@@ -119,7 +129,7 @@ def ensure_case_documents(case: Case) -> Tuple[List[GeneratedDocument], Dict[str
                 prompt_version, system_prompt, user_prompt = _artifact_prompts(doc_type, case_context)
                 p_hash = compute_prompt_hash(system_prompt, user_prompt)
 
-                # основная магия — вызывает нужный генератор (vision/scope/bpmn/context)
+                # основная магия — вызывает нужный генератор (vision/scope/bpmn/context/use_case)
                 structured, content, title, used_model = generate_structured_and_render(
                     doc_type,
                     case_context,
