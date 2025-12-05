@@ -11,7 +11,7 @@ class DocumentType(models.TextChoices):
     SCOPE = "scope", "Scope / Product Scope"
     BPMN = "bpmn", "BPMN Diagram"
     CONTEXT_DIAGRAM = "context_diagram", "Context Diagram"
-    # позже: SEQUENCE, USE_CASE, ERD и т.п.
+    UML_USE_CASE_DIAGRAM = "uml_use_case_diagram", "UML Use Case Diagram"
 
 
 class DocumentStatus(models.TextChoices):

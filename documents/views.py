@@ -1,5 +1,3 @@
-# documents/views.py
-
 import logging
 from django.utils import timezone
 
@@ -23,8 +21,8 @@ from .serializers import (
 from .services.editing import apply_llm_edit
 from .services.ensure import ensure_case_documents
 from .services.docx_export import ensure_docx_for_document
+from .services.confluence_publish import publish_case_to_confluence
 from .services.bpmn_image_export import ensure_bpmn_url_for_document
-from .services.confluence_publish import publish_case_to_confluence  # ✅ заглушка
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +68,7 @@ class CaseDocumentsView(generics.GenericAPIView):
 
             # Диаграмма: только URL на PlantUML-сервер (PNG)
             diagram_url = doc.diagram_url
-            diagram_path = None  # файлов локально нет
+            diagram_path = None  # локальных файлов не храним
 
             files.append(
                 {
@@ -114,10 +112,10 @@ class CaseDocumentsView(generics.GenericAPIView):
         tags=["Documents"],
         summary="Сгенерировать/обновить документы по кейсу и вернуть список файлов",
         description=(
-            "POST: запускает ленивую генерацию документов по кейсу (vision/scope/bpmn и др.) "
+            "POST: запускает ленивую генерацию документов по кейсу (vision/scope/bpmn/context/use case) "
             "и создание файлов:\n"
             "- для текстовых документов — DOCX;\n"
-            "- для диаграмм (BPMN, context_diagram) — только URL на PlantUML-сервер.\n"
+            "- для диаграмм (BPMN, context_diagram, uml_use_case_diagram) — только URL на PlantUML-сервер.\n"
         ),
         request=None,
         responses={
@@ -141,9 +139,16 @@ class CaseDocumentsView(generics.GenericAPIView):
             raise ValidationError(str(e))
 
         for doc in docs:
+            # DOCX только для текстовых документов
             if doc.doc_type in (DocumentType.VISION, DocumentType.SCOPE):
                 ensure_docx_for_document(doc, force=False)
-            if doc.doc_type in (DocumentType.BPMN, DocumentType.CONTEXT_DIAGRAM):
+
+            # Диаграмма через PlantUML URL
+            if doc.doc_type in (
+                DocumentType.BPMN,
+                DocumentType.CONTEXT_DIAGRAM,
+                DocumentType.UML_USE_CASE_DIAGRAM,
+            ):
                 ensure_bpmn_url_for_document(doc, force=False)
 
         if did_generate_any and case.status != CaseStatus.DOCUMENTS_GENERATED:
@@ -203,7 +208,9 @@ class DocumentReviewView(generics.GenericAPIView):
         # если документ одобрили, проверяем, все ли доки кейса одобрены
         if new_status == DocumentStatus.APPROVED_BY_BA:
             all_docs = list(case.documents.all())
-            if all_docs and all(d.status == DocumentStatus.APPROVED_BY_BA for d in all_docs):
+            if all_docs and all(
+                d.status == DocumentStatus.APPROVED_BY_BA for d in all_docs
+            ):
                 try:
                     publish_case_to_confluence(case)
                 except Exception as e:
