@@ -1,5 +1,3 @@
-# documents/models.py
-
 import uuid
 from django.db import models
 
@@ -51,8 +49,6 @@ class GeneratedDocument(models.Model):
     title = models.CharField(max_length=255)
 
     # Markdown / текстовое представление
-    # Для Vision/Scope — полноценный текст.
-    # Для BPMN/Context — можно хранить PlantUML-код или краткое описание + блок ```plantuml```.
     content = models.TextField(blank=True)
 
     # Структурированный JSON (Vision/Scope — разделы; BPMN/Context — plantuml + метаданные)
@@ -135,3 +131,45 @@ class GeneratedDocument(models.Model):
 
     def __str__(self):
         return f"{self.doc_type} for case={self.case_id} ({self.id})"
+
+
+class DocumentVersion(models.Model):
+    """
+    Снэпшот документа (версия).
+    Каждый раз при генерации/редактировании создаём новую версию.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    document = models.ForeignKey(
+        GeneratedDocument,
+        on_delete=models.CASCADE,
+        related_name="versions",
+        help_text="Документ, к которому относится версия.",
+    )
+
+    version = models.PositiveIntegerField(
+        help_text="Порядковый номер версии (1, 2, 3 ...).",
+    )
+
+    title = models.CharField(max_length=255)
+    content = models.TextField(blank=True)
+    structured_data = models.JSONField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    reason = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Причина создания версии (generation, llm_edit, diagram_edit, restore_version).",
+    )
+
+    class Meta:
+        verbose_name = "Document version"
+        verbose_name_plural = "Document versions"
+        ordering = ["document", "-version"]
+        unique_together = ("document", "version")
+
+    def __str__(self):
+        return f"Version {self.version} of doc={self.document_id}"

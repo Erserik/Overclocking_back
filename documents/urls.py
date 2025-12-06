@@ -5,6 +5,8 @@ from .views import (
     DocumentReviewView,
     DocumentUploadDocxView,
     DocumentLLMEditView,
+    DocumentVersionsListView,
+    DocumentUseVersionView,
 )
 
 urlpatterns = [
@@ -23,8 +25,21 @@ urlpatterns = [
         DocumentUploadDocxView.as_view(),
         name="document-upload-docx",
     ),
-    path("documents/<uuid:pk>/llm-edit/",
-         DocumentLLMEditView.as_view(),
-         name="document-llm-edit"),
+    path(
+        "documents/<uuid:pk>/llm-edit/",
+        DocumentLLMEditView.as_view(),
+        name="document-llm-edit",
+    ),
 
+    # 🔥 новое
+    path(
+        "documents/<uuid:pk>/versions/",
+        DocumentVersionsListView.as_view(),
+        name="document-versions",
+    ),
+    path(
+        "documents/<uuid:pk>/use-version/",
+        DocumentUseVersionView.as_view(),
+        name="document-use-version",
+    ),
 ]

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import GeneratedDocument, DocumentStatus
+from .models import GeneratedDocument, DocumentStatus, DocumentVersion
 
 
 class GeneratedDocumentSerializer(serializers.ModelSerializer):
@@ -28,15 +28,10 @@ class GeneratedDocumentSerializer(serializers.ModelSerializer):
             "prompt_hash",
             "source_snapshot_hash",
             "error_message",
-
-            # DOCX (файл + удобный абсолютный URL + дата генерации)
             "docx_file",
             "docx_url",
             "docx_generated_at",
-
-            # Диаграмма — только URL (мы больше не храним файл)
             "diagram_url",
-
             "created_at",
             "updated_at",
         ]
@@ -56,9 +51,6 @@ class GeneratedDocumentSerializer(serializers.ModelSerializer):
         )
 
     def get_docx_url(self, obj) -> str | None:
-        """
-        Абсолютный URL до DOCX, чтобы фронту было удобно.
-        """
         request = self.context.get("request")
         if not obj.docx_file:
             return None
@@ -72,12 +64,7 @@ class GeneratedDocumentSerializer(serializers.ModelSerializer):
         return url
 
 
-
 class DocumentReviewSerializer(serializers.Serializer):
-    """
-    Тело запроса для ревью документа (ANALYTIC / AUTHORITY).
-    """
-
     status = serializers.ChoiceField(
         choices=[
             DocumentStatus.DRAFT,
@@ -86,16 +73,41 @@ class DocumentReviewSerializer(serializers.Serializer):
         ]
     )
 
+
 class DocumentLLMEditSerializer(serializers.Serializer):
     """
-    Запрос на правку документа через AI.
-
-    Пример тела:
-    {
-      "instructions": "Сделай формулировки более формальными и добавь раздел про риски внедрения."
-    }
+    Для текстовых документов — инструкции для GPT.
+    Для диаграмм — полный PlantUML-код.
     """
     instructions = serializers.CharField(
-        help_text="Инструкции для AI, как изменить документ",
+        help_text="Инструкции для AI или полный PlantUML-код для диаграмм",
         allow_blank=False,
     )
+
+
+# 🔥 НОВОЕ: версии
+
+class DocumentVersionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DocumentVersion
+        fields = (
+            "id",
+            "version",
+            "title",
+            "created_at",
+            "reason",
+        )
+
+
+class DocumentVersionSelectSerializer(serializers.Serializer):
+    """
+    Тело запроса для выбора версии.
+    Можно передать либо version_id, либо номер version.
+    """
+    version_id = serializers.UUIDField(required=False)
+    version = serializers.IntegerField(required=False, min_value=1)
+
+    def validate(self, attrs):
+        if not attrs.get("version_id") and not attrs.get("version"):
+            raise serializers.ValidationError("Provide either version_id or version")
+        return attrs
