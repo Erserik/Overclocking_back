@@ -273,15 +273,18 @@ class DocumentUploadDocxView(generics.GenericAPIView):
 
 @extend_schema(
     tags=["Documents"],
-    summary="Отредактировать документ через AI (Vision/Scope)",
+    summary="Отредактировать документ через AI или заменить PlantUML-код",
     description=(
-        "Позволяет с помощью GPT внести правки в уже сгенерированный документ.\n\n"
-        "Сейчас поддерживаются только типы документов `vision` и `scope`.\n"
+        "Позволяет внести правки в уже сгенерированный документ.\n\n"
+        "- Для типов `vision` и `scope` — работает через GPT: в теле запроса "
+        "передаются текстовые инструкции (на русском), например:\n"
+        "`\"Сделай формулировки более формальными и добавь раздел про риски внедрения\"`.\n\n"
+        "- Для типов `bpmn`, `context_diagram`, `uml_use_case_diagram` — "
+        "в поле `instructions` передаётся **полный PlantUML-код диаграммы**, "
+        "который полностью заменяет старый и используется для перегенерации PNG-ссылки.\n\n"
         "Править могут все пользователи, у которых есть доступ к кейсу "
         "(CLIENT — только свои кейсы, ANALYTIC/AUTHORITY/ADMIN — любые).\n\n"
-        "В теле запроса передаются текстовые инструкции (на русском), например:\n"
-        "`\"Сделай формулировки более формальными и добавь раздел про риски внедрения\"`.\n\n"
-        "Результат: обновлённый structured_data документа и Markdown-контент."
+        "Результат: обновлённый structured_data, контент и (при необходимости) DOCX/diagram_url."
     ),
     request=DocumentLLMEditSerializer,
     responses={200: GeneratedDocumentSerializer},
@@ -289,7 +292,15 @@ class DocumentUploadDocxView(generics.GenericAPIView):
 class DocumentLLMEditView(generics.GenericAPIView):
     """
     POST /api/documents/{id}/llm-edit/
+
+    Для текстовых документов (vision/scope):
+      - instructions = текстовые правки, применяются через GPT.
+
+    Для диаграмм (bpmn/context_diagram/uml_use_case_diagram):
+      - instructions = полный PlantUML-код, которым мы заменяем существующий,
+        и пересобираем ссылку на картинку (diagram_url) через PlantUML.
     """
+
     serializer_class = DocumentLLMEditSerializer
 
     def post(self, request, pk, *args, **kwargs):
@@ -300,7 +311,7 @@ class DocumentLLMEditView(generics.GenericAPIView):
 
         user = request.user
 
-        # 🔓 Проверяем, что у пользователя вообще есть доступ к кейсу
+        # Проверяем, что у пользователя вообще есть доступ к кейсу
         # (CLIENT — только свои кейсы, ANALYTIC/AUTHORITY/ADMIN — любые)
         check_case_access(user, doc.case)
 
@@ -308,16 +319,44 @@ class DocumentLLMEditView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         instructions = serializer.validated_data["instructions"]
 
-        try:
-            doc = apply_llm_edit(doc, instructions)
-        except Exception as e:
-            raise ValidationError(str(e))
-
-        # по желанию сразу перегенерируем DOCX, чтобы был актуален
+        # ---------- ВЕТКА: текстовые документы (Vision / Scope) ----------
         if doc.doc_type in (DocumentType.VISION, DocumentType.SCOPE):
+            try:
+                doc = apply_llm_edit(doc, instructions)
+            except Exception as e:
+                raise ValidationError(str(e))
+
+            # сразу перегенерируем DOCX, чтобы был актуален
             ensure_docx_for_document(doc, force=True)
 
-        return Response(
-            GeneratedDocumentSerializer(doc).data,
-            status=status.HTTP_200_OK,
-        )
+            return Response(
+                GeneratedDocumentSerializer(doc).data,
+                status=status.HTTP_200_OK,
+            )
+
+        # ---------- ВЕТКА: диаграммы (BPMN / Context / UML Use Case) ----------
+        if doc.doc_type in (
+            DocumentType.BPMN,
+            DocumentType.CONTEXT_DIAGRAM,
+            DocumentType.UML_USE_CASE_DIAGRAM,
+        ):
+            new_plantuml = (instructions or "").strip()
+            if not new_plantuml:
+                raise ValidationError("instructions must contain PlantUML code for diagram documents")
+
+            structured = doc.structured_data or {}
+            structured["plantuml"] = new_plantuml
+            doc.structured_data = structured
+            doc.content = f"```plantuml\n{new_plantuml}\n```"
+            doc.save(update_fields=["structured_data", "content", "updated_at"])
+
+            # пересобираем ссылку на диаграмму
+            ensure_bpmn_url_for_document(doc, force=True)
+
+            return Response(
+                GeneratedDocumentSerializer(doc).data,
+                status=status.HTTP_200_OK,
+            )
+
+        # если что-то забыли поддержать
+        raise ValidationError(f"LLM edit is not supported for doc_type={doc.doc_type}")
