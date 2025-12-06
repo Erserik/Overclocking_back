@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 from django.conf import settings
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-
+# Просто alias, чтобы при желании можно было подменять
 AgentClient = OpenAI
 
+
+# ========= 1. Вызов workflow (AI Agent) =========
 
 def run_workflow(
     workflow_id: str,
@@ -74,3 +76,60 @@ def run_usecase_agent(case_context: Dict[str, Any]) -> Dict[str, Any]:
         workflow_id=workflow_id,
         input_data=input_payload,
     )
+
+
+# ========= 2. Обычный chat-completion с JSON-ответом =========
+
+def chat_json(
+    *,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    response_format: Dict[str, Any],
+) -> Tuple[Dict[str, Any], str]:
+    """
+    Вызов GPT, который должен вернуть JSON по заданной json_schema.
+
+    Параметры:
+      - model: имя модели (например, "gpt-5.1" или "gpt-5.1-mini")
+      - system_prompt: системный промпт
+      - user_prompt: промпт пользователя
+      - response_format: dict с json_schema (как в DIAGRAM_EDIT)
+
+    Возвращает:
+      - data: dict, распарсенный JSON из ответа модели
+      - raw: str, сырой текст ответа (для логов/отладки)
+    """
+    client = AgentClient()
+
+    logger.info(
+        "Calling chat_json with model=%s, response_format=%s",
+        model,
+        response_format.get("type"),
+    )
+
+    completion = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        response_format=response_format,
+    )
+
+    raw = completion.choices[0].message.content or ""
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.exception("Failed to parse JSON from LLM response")
+        raise ValueError(
+            f"LLM returned non-JSON response. Raw content:\n{raw}"
+        )
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"LLM JSON response is not an object. Raw content:\n{raw}"
+        )
+
+    return data, raw
