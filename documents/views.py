@@ -277,6 +277,8 @@ class DocumentUploadDocxView(generics.GenericAPIView):
     description=(
         "Позволяет с помощью GPT внести правки в уже сгенерированный документ.\n\n"
         "Сейчас поддерживаются только типы документов `vision` и `scope`.\n"
+        "Править могут все пользователи, у которых есть доступ к кейсу "
+        "(CLIENT — только свои кейсы, ANALYTIC/AUTHORITY/ADMIN — любые).\n\n"
         "В теле запроса передаются текстовые инструкции (на русском), например:\n"
         "`\"Сделай формулировки более формальными и добавь раздел про риски внедрения\"`.\n\n"
         "Результат: обновлённый structured_data документа и Markdown-контент."
@@ -297,8 +299,10 @@ class DocumentLLMEditView(generics.GenericAPIView):
             raise NotFound("Document not found")
 
         user = request.user
-        if not (is_analytic_user(user) or is_admin_user(user)):
-            raise PermissionDenied("Only ANALYTIC or AUTHORITY can edit documents via AI")
+
+        # 🔓 Проверяем, что у пользователя вообще есть доступ к кейсу
+        # (CLIENT — только свои кейсы, ANALYTIC/AUTHORITY/ADMIN — любые)
+        check_case_access(user, doc.case)
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
