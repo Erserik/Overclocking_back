@@ -23,6 +23,11 @@ from .artifacts.context_diagram import prompt as ctx_prompt
 from .artifacts.context_diagram.generator import generate as generate_context
 from .artifacts.context_diagram.renderer import render as render_context
 
+# ------- UML USE CASE -------
+from .artifacts.usecase import prompt as usecase_prompt
+from .artifacts.usecase.generator import generate as generate_usecase
+from .artifacts.usecase.renderer import render as render_usecase
+
 
 def get_artifact_prompt_bundle(doc_type: str) -> Tuple[str, str, str]:
     """
@@ -43,8 +48,11 @@ def get_artifact_prompt_bundle(doc_type: str) -> Tuple[str, str, str]:
         return ctx_prompt.PROMPT_VERSION, ctx_prompt.SYSTEM_PROMPT, "context_diagram"
 
     if doc_type == DocumentType.UML_USE_CASE_DIAGRAM:
-        # Пока без отдельного промпта — просто метки
-        return "uml_use_case_v1", "UML USE CASE FALLBACK", "uml_use_case"
+        return (
+            usecase_prompt.PROMPT_VERSION,
+            usecase_prompt.SYSTEM_PROMPT,
+            "uml_use_case",
+        )
 
     raise ValueError(f"Unsupported doc_type: {doc_type}")
 
@@ -105,48 +113,13 @@ def generate_structured_and_render(
         title = f"Context: {case_context['case']['title']}"
         return structured, content, title, used_model
 
-    # ---------- UML USE CASE DIAGRAM (простая заглушка без GPT) ----------
+    # ---------- UML USE CASE DIAGRAM ----------
     if doc_type == DocumentType.UML_USE_CASE_DIAGRAM:
-        case_title = case_context.get("case", {}).get("title", "Без названия")
-
-        initial_answers = (
-            case_context.get("case", {}).get("initial_answers")
-            or {}
-        )
-        idea = (initial_answers.get("idea") or "").strip()
-        user_actions = (initial_answers.get("user_actions") or "").strip()
-
-        plantuml = f"""@startuml
-title Use Case: {case_title}
-
-actor "Пользователь" as User
-actor "Бизнес-аналитик" as BA
-
-rectangle "{case_title}" as System {{
-  usecase "Основной сценарий" as UC_Main
-  usecase "Просмотр отчётов" as UC_Reports
-}}
-
-User --> UC_Main
-BA --> UC_Reports
-
-@enduml
-"""
-
-        structured: Dict[str, Any] = {
-            "plantuml": plantuml,
-            "notes": [
-                "Черновая UML use case диаграмма на основе базовых ответов.",
-                f"Идея: {idea[:120]}",
-                f"Действия пользователя: {user_actions[:120]}",
-            ],
-        }
-
-        content_md = f"```plantuml\n{plantuml}\n```"
-        title = f"Use Case: {case_title}"
-        used_model = "static_fallback_uml_use_case"
-
-        return structured, content_md, title, used_model
+        structured, used_model = generate_usecase(case_context)
+        # renderer оборачивает PlantUML в ```plantuml``` и добавляет текст/ноты
+        content = render_usecase(structured)
+        title = f"Use Case: {case_context['case']['title']}"
+        return structured, content, title, used_model
 
     # Если забыли добавить новый тип — валимся сюда
     raise ValueError("Unsupported doc_type")
