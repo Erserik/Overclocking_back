@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from django.utils import timezone
@@ -44,6 +45,29 @@ RESPONSE_FORMAT_DIAGRAM_EDIT: dict[str, Any] = {
         },
     },
 }
+
+# --- нормализация кривого синтаксиса use case от модели --- #
+
+USECASE_LINE_RE = re.compile(
+    r'^\s*\("(?P<label>.*?)"\)\s+as\s+(?P<alias>[A-Za-z0-9_]+)\s*$',
+    re.MULTILINE,
+)
+
+
+def normalize_usecase_syntax(plantuml: str) -> str:
+    """
+    Исправляем строки вида:
+      ("Текст кейса") as UC_Something
+    в корректный синтаксис use case:
+      usecase UC_Something as "Текст кейса"
+    """
+
+    def _repl(match: re.Match) -> str:
+        label = match.group("label")
+        alias = match.group("alias")
+        return f'usecase {alias} as "{label}"'
+
+    return USECASE_LINE_RE.sub(_repl, plantuml)
 
 
 def _extract_current_plantuml(doc: GeneratedDocument) -> str:
@@ -132,6 +156,9 @@ def apply_diagram_llm_edit(doc: GeneratedDocument, instructions: str) -> Generat
     if not new_plantuml:
         raise ValueError("LLM did not return plantuml field")
 
+    # 🔧 фиксим кривые строки вида ("Текст") as UC_X
+    new_plantuml = normalize_usecase_syntax(new_plantuml)
+
     if "@startuml" not in new_plantuml or "@enduml" not in new_plantuml:
         raise ValueError(
             "Неверный формат PlantUML: код должен содержать директивы '@startuml' и '@enduml'. "
@@ -149,4 +176,3 @@ def apply_diagram_llm_edit(doc: GeneratedDocument, instructions: str) -> Generat
     doc.save(update_fields=["structured_data", "content", "updated_at"])
 
     return doc
-
