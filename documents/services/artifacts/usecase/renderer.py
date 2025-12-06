@@ -3,21 +3,25 @@ from typing import Any, Dict
 
 def render(structured: Dict[str, Any]) -> str:
     """
-    Рендерим Markdown с блоком ```plantuml``` + заметки.
+    Строим markdown-контент для UI / DOCX.
+
+    - Вставляем PlantUML в блок ```plantuml
+    - Ниже — список комментариев (если есть)
     """
-    plantuml = structured.get("plantuml", "") or ""
+    plantuml = (structured.get("plantuml") or "").strip()
     notes = structured.get("notes") or []
 
-    lines: list[str] = []
+    parts: list[str] = []
+
+    if plantuml:
+        parts.append("```plantuml")
+        parts.append(plantuml)
+        parts.append("```")
 
     if notes:
-        lines.append("### Комментарии к диаграмме\n")
+        parts.append("")
+        parts.append("**Комментарии к диаграмме:**")
         for n in notes:
-            lines.append(f"- {n}")
-        lines.append("")  # пустая строка
+            parts.append(f"- {n}")
 
-    lines.append("```plantuml")
-    lines.append(plantuml.strip())
-    lines.append("```")
-
-    return "\n".join(lines)
+    return "\n".join(parts).strip()
