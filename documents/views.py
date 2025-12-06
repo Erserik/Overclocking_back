@@ -389,7 +389,7 @@ class DocumentUseVersionView(generics.GenericAPIView):
                     document=doc,
                     version=data["version"],
                 )
-            except DocumentVersionDoesNotExist:
+            except DocumentVersion.DoesNotExist:
                 raise NotFound("Version not found for this document")
 
         # подмена текущего состояния документа
@@ -416,4 +416,3 @@ class DocumentUseVersionView(generics.GenericAPIView):
             GeneratedDocumentSerializer(doc).data,
             status=status.HTTP_200_OK,
         )
-
