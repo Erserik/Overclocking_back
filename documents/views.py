@@ -12,19 +12,43 @@ from drf_spectacular.types import OpenApiTypes
 from cases.models import Case, CaseStatus
 from cases.views import check_case_access, is_admin_user, is_analytic_user
 
-from .models import GeneratedDocument, DocumentType, DocumentStatus
+from .models import (
+    GeneratedDocument,
+    DocumentType,
+    DocumentStatus,
+    DocumentVersion,
+)
 from .serializers import (
     GeneratedDocumentSerializer,
     DocumentReviewSerializer,
     DocumentLLMEditSerializer,
+    DocumentVersionSerializer,
+    DocumentVersionSelectSerializer,
 )
 from .services.editing import apply_llm_edit
 from .services.ensure import ensure_case_documents
 from .services.docx_export import ensure_docx_for_document
 from .services.confluence_publish import publish_case_to_confluence
 from .services.bpmn_image_export import ensure_bpmn_url_for_document
+from .services.versioning import create_document_version_snapshot
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_plantuml_input(raw: str) -> str:
+    """
+    Убираем возможные ```plantuml```-ограждения и лишние пробелы.
+    """
+    text = (raw or "").strip()
+
+    # если прислали целиком блок ```plantuml ... ```
+    if text.startswith("```"):
+        lines = text.splitlines()
+        # выкидываем строки с ``` (```plantuml, ```)
+        lines = [ln for ln in lines if not ln.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+
+    return text
 
 
 @extend_schema(
@@ -59,14 +83,12 @@ class CaseDocumentsView(generics.GenericAPIView):
 
         files = []
         for doc in docs:
-            # DOCX
             docx_url = None
             docx_path = None
             if doc.docx_file and doc.docx_file.name:
                 docx_path = doc.docx_file.name
                 docx_url = request.build_absolute_uri(doc.docx_file.url)
 
-            # Диаграмма: только URL на PlantUML-сервер (PNG)
             diagram_url = doc.diagram_url
             diagram_path = None  # локальных файлов не храним
 
@@ -86,8 +108,6 @@ class CaseDocumentsView(generics.GenericAPIView):
 
         return files
 
-    # ---------- GET: только чтение, без генерации ----------
-
     def get(self, request, pk, *args, **kwargs):
         try:
             case = Case.objects.get(pk=pk)
@@ -105,8 +125,6 @@ class CaseDocumentsView(generics.GenericAPIView):
             "files": files,
         }
         return Response(payload, status=status.HTTP_200_OK)
-
-    # ---------- POST: генерация документов + файлов ----------
 
     @extend_schema(
         tags=["Documents"],
@@ -139,11 +157,9 @@ class CaseDocumentsView(generics.GenericAPIView):
             raise ValidationError(str(e))
 
         for doc in docs:
-            # DOCX только для текстовых документов
             if doc.doc_type in (DocumentType.VISION, DocumentType.SCOPE):
                 ensure_docx_for_document(doc, force=False)
 
-            # Диаграмма через PlantUML URL
             if doc.doc_type in (
                 DocumentType.BPMN,
                 DocumentType.CONTEXT_DIAGRAM,
@@ -174,16 +190,12 @@ class CaseDocumentsView(generics.GenericAPIView):
         "Позволяет роли ANALYTIC (и AUTHORITY) менять статус документа: "
         "`draft` / `approved_by_ba` / `rejected_by_ba`.\n\n"
         "Если после изменения статуса ВСЕ документы кейса имеют статус "
-        "`approved_by_ba`, вызывается publish_case_to_confluence(case) "
-        "(сейчас заглушка, которая просто ставит кейсу статус `approved`)."
+        "`approved_by_ba`, вызывается publish_case_to_confluence(case)."
     ),
     request=DocumentReviewSerializer,
     responses={200: GeneratedDocumentSerializer},
 )
 class DocumentReviewView(generics.GenericAPIView):
-    """
-    PATCH /api/documents/{id}/review/
-    """
     serializer_class = DocumentReviewSerializer
 
     def patch(self, request, pk, *args, **kwargs):
@@ -205,7 +217,6 @@ class DocumentReviewView(generics.GenericAPIView):
 
         case = doc.case
 
-        # если документ одобрили, проверяем, все ли доки кейса одобрены
         if new_status == DocumentStatus.APPROVED_BY_BA:
             all_docs = list(case.documents.all())
             if all_docs and all(
@@ -229,9 +240,7 @@ class DocumentReviewView(generics.GenericAPIView):
 @extend_schema(
     tags=["Documents"],
     summary="Заменить DOCX-файл документа (роль ANALYTIC / AUTHORITY)",
-    description=(
-        "Позволяет роли ANALYTIC (и AUTHORITY) загрузить свой DOCX-файл для документа."
-    ),
+    description="Позволяет роли ANALYTIC (и AUTHORITY) загрузить свой DOCX-файл для документа.",
     request=None,
     responses={
         200: OpenApiResponse(
@@ -241,9 +250,6 @@ class DocumentReviewView(generics.GenericAPIView):
     },
 )
 class DocumentUploadDocxView(generics.GenericAPIView):
-    """
-    POST /api/documents/{id}/upload-docx/
-    """
     parser_classes = (MultiPartParser, FormParser)
     serializer_class = GeneratedDocumentSerializer
 
@@ -275,32 +281,15 @@ class DocumentUploadDocxView(generics.GenericAPIView):
     tags=["Documents"],
     summary="Отредактировать документ через AI или заменить PlantUML-код",
     description=(
-        "Позволяет внести правки в уже сгенерированный документ.\n\n"
-        "- Для типов `vision` и `scope` — работает через GPT: в теле запроса "
-        "передаются текстовые инструкции (на русском), например:\n"
-        "`\"Сделай формулировки более формальными и добавь раздел про риски внедрения\"`.\n\n"
-        "- Для типов `bpmn`, `context_diagram`, `uml_use_case_diagram` — "
-        "в поле `instructions` передаётся **полный PlantUML-код диаграммы**, "
-        "который полностью заменяет старый и используется для перегенерации PNG-ссылки.\n\n"
-        "Править могут все пользователи, у которых есть доступ к кейсу "
-        "(CLIENT — только свои кейсы, ANALYTIC/AUTHORITY/ADMIN — любые).\n\n"
-        "Результат: обновлённый structured_data, контент и (при необходимости) DOCX/diagram_url."
+        "Для типов `vision` и `scope` — работает через GPT (instructions = текстовые правки).\n"
+        "Для типов `bpmn`, `context_diagram`, `uml_use_case_diagram` — "
+        "instructions = полный PlantUML-код, которым заменяется диаграмма.\n"
+        "После правок создаётся новая версия документа."
     ),
     request=DocumentLLMEditSerializer,
     responses={200: GeneratedDocumentSerializer},
 )
 class DocumentLLMEditView(generics.GenericAPIView):
-    """
-    POST /api/documents/{id}/llm-edit/
-
-    Для текстовых документов (vision/scope):
-      - instructions = текстовые правки, применяются через GPT.
-
-    Для диаграмм (bpmn/context_diagram/uml_use_case_diagram):
-      - instructions = полный PlantUML-код, которым мы заменяем существующий,
-        и пересобираем ссылку на картинку (diagram_url) через PlantUML.
-    """
-
     serializer_class = DocumentLLMEditSerializer
 
     def post(self, request, pk, *args, **kwargs):
@@ -310,39 +299,49 @@ class DocumentLLMEditView(generics.GenericAPIView):
             raise NotFound("Document not found")
 
         user = request.user
-
-        # Проверяем, что у пользователя вообще есть доступ к кейсу
-        # (CLIENT — только свои кейсы, ANALYTIC/AUTHORITY/ADMIN — любые)
         check_case_access(user, doc.case)
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         instructions = serializer.validated_data["instructions"]
 
-        # ---------- ВЕТКА: текстовые документы (Vision / Scope) ----------
+        # Текстовые документы
         if doc.doc_type in (DocumentType.VISION, DocumentType.SCOPE):
             try:
                 doc = apply_llm_edit(doc, instructions)
             except Exception as e:
                 raise ValidationError(str(e))
 
-            # сразу перегенерируем DOCX, чтобы был актуален
             ensure_docx_for_document(doc, force=True)
+
+            # версия
+            create_document_version_snapshot(doc, reason="llm_edit")
 
             return Response(
                 GeneratedDocumentSerializer(doc).data,
                 status=status.HTTP_200_OK,
             )
 
-        # ---------- ВЕТКА: диаграммы (BPMN / Context / UML Use Case) ----------
+        # Диаграммы
         if doc.doc_type in (
             DocumentType.BPMN,
             DocumentType.CONTEXT_DIAGRAM,
             DocumentType.UML_USE_CASE_DIAGRAM,
         ):
-            new_plantuml = (instructions or "").strip()
+            new_plantuml = _normalize_plantuml_input(instructions)
+
             if not new_plantuml:
-                raise ValidationError("instructions must contain PlantUML code for diagram documents")
+                raise ValidationError(
+                    "Для диаграмм нужно передать полный PlantUML-код в поле 'instructions'."
+                )
+
+            # минимальная проверка, чтобы не принять просто текст
+            if "@startuml" not in new_plantuml or "@enduml" not in new_plantuml:
+                raise ValidationError(
+                    "Неверный формат PlantUML: код должен содержать директивы "
+                    "'@startuml' и '@enduml'. Сейчас пришёл просто текст, "
+                    "поэтому диаграмму обновить нельзя."
+                )
 
             structured = doc.structured_data or {}
             structured["plantuml"] = new_plantuml
@@ -350,13 +349,107 @@ class DocumentLLMEditView(generics.GenericAPIView):
             doc.content = f"```plantuml\n{new_plantuml}\n```"
             doc.save(update_fields=["structured_data", "content", "updated_at"])
 
-            # пересобираем ссылку на диаграмму
             ensure_bpmn_url_for_document(doc, force=True)
+
+            # версия
+            create_document_version_snapshot(doc, reason="diagram_edit")
 
             return Response(
                 GeneratedDocumentSerializer(doc).data,
                 status=status.HTTP_200_OK,
             )
 
-        # если что-то забыли поддержать
         raise ValidationError(f"LLM edit is not supported for doc_type={doc.doc_type}")
+
+
+# ===== НОВОЕ: история версий и выбор версии =====
+
+@extend_schema(
+    tags=["Documents"],
+    summary="Список версий документа",
+    description="Возвращает историю версий документа, по убыванию номера версии.",
+    responses={200: DocumentVersionSerializer(many=True)},
+)
+class DocumentVersionsListView(generics.GenericAPIView):
+    serializer_class = DocumentVersionSerializer
+
+    def get(self, request, pk, *args, **kwargs):
+        try:
+            doc = GeneratedDocument.objects.select_related("case").get(pk=pk)
+        except GeneratedDocument.DoesNotExist:
+            raise NotFound("Document not found")
+
+        check_case_access(request.user, doc.case)
+
+        versions = doc.versions.all().order_by("-version")
+        serializer = self.get_serializer(versions, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=["Documents"],
+    summary="Сделать выбранную версию текущей",
+    description=(
+        "Копирует title/content/structured_data из указанной версии в текущий документ, "
+        "перегенерирует DOCX/diagram_url и создаёт новую версию с reason='restore_version'."
+    ),
+    request=DocumentVersionSelectSerializer,
+    responses={200: GeneratedDocumentSerializer},
+)
+class DocumentUseVersionView(generics.GenericAPIView):
+    serializer_class = DocumentVersionSelectSerializer
+
+    def post(self, request, pk, *args, **kwargs):
+        try:
+            doc = GeneratedDocument.objects.select_related("case").get(pk=pk)
+        except GeneratedDocument.DoesNotExist:
+            raise NotFound("Document not found")
+
+        check_case_access(request.user, doc.case)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        version_obj = None
+        if data.get("version_id"):
+            try:
+                version_obj = DocumentVersion.objects.get(
+                    document=doc,
+                    id=data["version_id"],
+                )
+            except DocumentVersion.DoesNotExist:
+                raise NotFound("Version not found for this document")
+        else:
+            try:
+                version_obj = DocumentVersion.objects.get(
+                    document=doc,
+                    version=data["version"],
+                )
+            except DocumentVersion.DoesNotExist:
+                raise NotFound("Version not found for this document")
+
+        # подмена текущего состояния документа
+        doc.title = version_obj.title
+        doc.content = version_obj.content
+        doc.structured_data = version_obj.structured_data
+        doc.save(update_fields=["title", "content", "structured_data", "updated_at"])
+
+        # перегенерим файлы/диаграммы
+        if doc.doc_type in (DocumentType.VISION, DocumentType.SCOPE):
+            ensure_docx_for_document(doc, force=True)
+
+        if doc.doc_type in (
+            DocumentType.BPMN,
+            DocumentType.CONTEXT_DIAGRAM,
+            DocumentType.UML_USE_CASE_DIAGRAM,
+        ):
+            ensure_bpmn_url_for_document(doc, force=True)
+
+        # создаём ещё одну версию как результат отката
+        create_document_version_snapshot(doc, reason="restore_version")
+
+        return Response(
+            GeneratedDocumentSerializer(doc).data,
+            status=status.HTTP_200_OK,
+        )

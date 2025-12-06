@@ -18,6 +18,7 @@ from .artifacts.scope import prompt as scope_prompt
 from .artifacts.bpmn import prompt as bpmn_prompt
 from .artifacts.context_diagram import prompt as ctx_prompt
 from .artifacts.usecase import prompt as usecase_prompt
+from .versioning import create_document_version_snapshot  # 👈 НОВОЕ
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,9 @@ def ensure_case_documents(case: Case) -> Tuple[List[GeneratedDocument], Dict[str
                 doc.generation_status = GenerationStatus.READY
                 doc.error_message = None
                 doc.save()
+
+                # 🔥 создаём версию после генерации
+                create_document_version_snapshot(doc, reason="generation")
 
                 did_generate_any = True
 
