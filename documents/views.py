@@ -31,24 +31,9 @@ from .services.docx_export import ensure_docx_for_document
 from .services.confluence_publish import publish_case_to_confluence
 from .services.bpmn_image_export import ensure_bpmn_url_for_document
 from .services.versioning import create_document_version_snapshot
+from .services.diagram_editing import apply_diagram_llm_edit  # important
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_plantuml_input(raw: str) -> str:
-    """
-    Убираем возможные ```plantuml```-ограждения и лишние пробелы.
-    """
-    text = (raw or "").strip()
-
-    # если прислали целиком блок ```plantuml ... ```
-    if text.startswith("```"):
-        lines = text.splitlines()
-        # выкидываем строки с ``` (```plantuml, ```)
-        lines = [ln for ln in lines if not ln.strip().startswith("```")]
-        text = "\n".join(lines).strip()
-
-    return text
 
 
 @extend_schema(
@@ -279,11 +264,11 @@ class DocumentUploadDocxView(generics.GenericAPIView):
 
 @extend_schema(
     tags=["Documents"],
-    summary="Отредактировать документ через AI или заменить PlantUML-код",
+    summary="Отредактировать документ через AI (текст) или диаграмму (через AI + PlantUML)",
     description=(
         "Для типов `vision` и `scope` — работает через GPT (instructions = текстовые правки).\n"
         "Для типов `bpmn`, `context_diagram`, `uml_use_case_diagram` — "
-        "instructions = полный PlantUML-код, которым заменяется диаграмма.\n"
+        "instructions = текстовые инструкции на русском, GPT возвращает новый PlantUML.\n"
         "После правок создаётся новая версия документа."
     ),
     request=DocumentLLMEditSerializer,
@@ -305,7 +290,7 @@ class DocumentLLMEditView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         instructions = serializer.validated_data["instructions"]
 
-        # Текстовые документы
+        # Text documents
         if doc.doc_type in (DocumentType.VISION, DocumentType.SCOPE):
             try:
                 doc = apply_llm_edit(doc, instructions)
@@ -313,8 +298,6 @@ class DocumentLLMEditView(generics.GenericAPIView):
                 raise ValidationError(str(e))
 
             ensure_docx_for_document(doc, force=True)
-
-            # версия
             create_document_version_snapshot(doc, reason="llm_edit")
 
             return Response(
@@ -322,36 +305,18 @@ class DocumentLLMEditView(generics.GenericAPIView):
                 status=status.HTTP_200_OK,
             )
 
-        # Диаграммы
+        # Diagrams via AI + context
         if doc.doc_type in (
             DocumentType.BPMN,
             DocumentType.CONTEXT_DIAGRAM,
             DocumentType.UML_USE_CASE_DIAGRAM,
         ):
-            new_plantuml = _normalize_plantuml_input(instructions)
-
-            if not new_plantuml:
-                raise ValidationError(
-                    "Для диаграмм нужно передать полный PlantUML-код в поле 'instructions'."
-                )
-
-            # минимальная проверка, чтобы не принять просто текст
-            if "@startuml" not in new_plantuml or "@enduml" not in new_plantuml:
-                raise ValidationError(
-                    "Неверный формат PlantUML: код должен содержать директивы "
-                    "'@startuml' и '@enduml'. Сейчас пришёл просто текст, "
-                    "поэтому диаграмму обновить нельзя."
-                )
-
-            structured = doc.structured_data or {}
-            structured["plantuml"] = new_plantuml
-            doc.structured_data = structured
-            doc.content = f"```plantuml\n{new_plantuml}\n```"
-            doc.save(update_fields=["structured_data", "content", "updated_at"])
+            try:
+                doc = apply_diagram_llm_edit(doc, instructions)
+            except Exception as e:
+                raise ValidationError(str(e))
 
             ensure_bpmn_url_for_document(doc, force=True)
-
-            # версия
             create_document_version_snapshot(doc, reason="diagram_edit")
 
             return Response(
@@ -361,8 +326,6 @@ class DocumentLLMEditView(generics.GenericAPIView):
 
         raise ValidationError(f"LLM edit is not supported for doc_type={doc.doc_type}")
 
-
-# ===== НОВОЕ: история версий и выбор версии =====
 
 @extend_schema(
     tags=["Documents"],
@@ -426,7 +389,7 @@ class DocumentUseVersionView(generics.GenericAPIView):
                     document=doc,
                     version=data["version"],
                 )
-            except DocumentVersion.DoesNotExist:
+            except DocumentVersionDoesNotExist:
                 raise NotFound("Version not found for this document")
 
         # подмена текущего состояния документа
@@ -453,3 +416,4 @@ class DocumentUseVersionView(generics.GenericAPIView):
             GeneratedDocumentSerializer(doc).data,
             status=status.HTTP_200_OK,
         )
+
