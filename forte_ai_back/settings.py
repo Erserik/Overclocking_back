@@ -168,8 +168,13 @@ MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-CORS_ALLOW_ALL_ORIGINS = True   # ✅ Разрешить всем источникам (для dev)
-CORS_ALLOW_CREDENTIALS = True   # Если нужны куки / авторизация
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOWED_ORIGINS = [
+  "http://192.168.8.68:5173",
+  "http://localhost:5173",
+]
 
 OPENAI_MODEL_DEFAULT = os.getenv("OPENAI_MODEL_DEFAULT", "gpt-5.1")
 OPENAI_MODEL_VISION = os.getenv("OPENAI_MODEL_VISION", OPENAI_MODEL_DEFAULT)
