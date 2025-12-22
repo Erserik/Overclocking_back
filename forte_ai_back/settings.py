@@ -167,15 +167,12 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = False
 
 CORS_ALLOWED_ORIGINS = [
     "http://192.168.8.68:5173",
     "http://localhost:5173",
-    "https://192.168.8.68:5173",
-    "https://localhost:5173",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -190,14 +187,13 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
 ]
 
-CORS_ALLOW_METHODS = [
-    "DELETE",
-    "GET",
-    "OPTIONS",
-    "PATCH",
-    "POST",
-    "PUT",
+CSRF_TRUSTED_ORIGINS = [
+    "http://192.168.8.68:5173",
+    "http://localhost:5173",
 ]
+
+CORS_ALLOW_METHODS = list(default_methods)
+
 
 OPENAI_MODEL_DEFAULT = os.getenv("OPENAI_MODEL_DEFAULT", "gpt-5.1")
 OPENAI_MODEL_VISION = os.getenv("OPENAI_MODEL_VISION", OPENAI_MODEL_DEFAULT)
