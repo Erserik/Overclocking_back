@@ -175,21 +175,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
 
-CORS_ALLOW_HEADERS = [
-    "accept",
-    "accept-encoding",
+CORS_ALLOW_HEADERS = list(default_headers) + [
     "authorization",
     "content-type",
-    "dnt",
-    "origin",
-    "user-agent",
-    "x-csrftoken",
-    "x-requested-with",
-]
-
-CSRF_TRUSTED_ORIGINS = [
-    "http://192.168.8.68:5173",
-    "http://localhost:5173",
 ]
 
 CORS_ALLOW_METHODS = list(default_methods)
