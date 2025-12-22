@@ -172,8 +172,8 @@ CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
-  "http://192.168.8.68:5173",
-  "http://localhost:5173",
+    "http://192.168.8.68:5173",
+    "http://localhost:5173",
 ]
 
 OPENAI_MODEL_DEFAULT = os.getenv("OPENAI_MODEL_DEFAULT", "gpt-5.1")
