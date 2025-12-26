@@ -16,7 +16,6 @@ from .serializers import (
     AnswerQuestionSerializer,
 )
 
-
 # ======================= Роли (AUTHORITY / ANALYTIC / CLIENT) =======================
 
 ADMIN_ROLES = {"AUTHORITY", "ANALYTIC"}
@@ -24,37 +23,13 @@ ADMIN_ROLES = {"AUTHORITY", "ANALYTIC"}
 
 def get_user_roles(user) -> list[str]:
     """
-    Пытаемся аккуратно вытащить роли из объекта user,
-    ориентируясь на HKRolesTypes = 'AUTHORITY' | 'ANALYTIC' | 'CLIENT'.
+    Django auth + SimpleJWT:
+    у нас user = accounts.User, у него есть поле role (CLIENT/ANALYTIC/AUTHORITY).
     """
     if not getattr(user, "is_authenticated", False):
         return []
-
-    roles: list[str] = []
-
-    # Вариант 1: user.roles = ["AUTHORITY", "ANALYTIC"]
-    if hasattr(user, "roles"):
-        val = getattr(user, "roles")
-        if isinstance(val, str):
-            roles.append(val)
-        elif isinstance(val, (list, tuple, set)):
-            roles.extend(val)
-
-    # Вариант 2: user.authorities = ["AUTHORITY", ...]
-    if hasattr(user, "authorities"):
-        val = getattr(user, "authorities")
-        if isinstance(val, str):
-            roles.append(val)
-        elif isinstance(val, (list, tuple, set)):
-            roles.extend(val)
-
-    # Вариант 3: user.role = "CLIENT"
-    if hasattr(user, "role"):
-        val = getattr(user, "role")
-        if isinstance(val, str):
-            roles.append(val)
-
-    return [str(r).upper() for r in roles if r]
+    role = getattr(user, "role", None)
+    return [str(role).upper()] if role else []
 
 
 def has_role(user, role: str) -> bool:
@@ -79,7 +54,7 @@ def is_admin_user(user) -> bool:
 def check_case_access(user, case: "Case") -> None:
     """
     - AUTHORITY / ANALYTIC: доступ ко всем кейсам
-    - остальные (CLIENT): только к кейсам, где requester_id = user.id
+    - CLIENT: только к кейсам, где requester_id = user.id
     """
     if not getattr(user, "is_authenticated", False):
         raise PermissionDenied("Authentication required")
@@ -87,12 +62,12 @@ def check_case_access(user, case: "Case") -> None:
     if is_admin_user(user):
         return
 
+    # CLIENT: только свои кейсы
     if case.requester_id and case.requester_id != str(user.id):
         raise PermissionDenied("You do not have access to this case")
 
 
 # ======================= Views кейсов =======================
-
 
 @extend_schema(
     tags=['Cases'],
@@ -163,6 +138,11 @@ class CaseInitialAnswersUpdateView(generics.UpdateAPIView):
     serializer_class = CaseInitialAnswersSerializer
     lookup_field = "pk"
     http_method_names = ['put', 'options', 'head']
+
+    def get_object(self):
+        obj = super().get_object()
+        check_case_access(self.request.user, obj)  # ✅ важно!
+        return obj
 
 
 @extend_schema(
